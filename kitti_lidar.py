@@ -151,7 +151,7 @@ def in_hull(p,hull):
 # Raw Data directory information
 basedir = '/home/gengshan/wnov/kitti/'
 date = '2011_09_26'
-drive = '0005'
+drive = '0052'
 
 dataset = pykitti.raw(basedir, date, drive)
 tracklet_rects, tracklet_types, tracklet_ids = load_tracklets_for_frames(len(list(dataset.velo)),\
@@ -162,6 +162,9 @@ color_num = 32
 colors = np.asarray(np.random.rand(color_num,3))
 fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
 #with constant_camera_view():
+directory = './output/%s_%s' % (date,drive)
+if not os.path.exists(directory):
+    os.makedirs(directory)
 for i,velo in enumerate(dataset.velo):
     #pdb.set_trace()
     mlab.clf()
@@ -214,5 +217,5 @@ for i,velo in enumerate(dataset.velo):
     mlab.view(*config)
     
     # velo[:, 3], # reflectance values
-    mlab.savefig('test_%03d.png'%i)
+    mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
 mlab.show(stop=True)
