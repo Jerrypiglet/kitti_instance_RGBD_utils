@@ -110,7 +110,7 @@ def load_tracklets_for_frames(n_frames, xml_path):
     return (frame_tracklets, frame_tracklets_types, frame_tracklets_id)
 
 
-def draw_box(vertices):
+def draw_box(vertices, color):
     """
     Draws a bounding 3D box in a pyplot axis.
     
@@ -128,7 +128,7 @@ def draw_box(vertices):
         [0, 4], [1, 5], [2, 6], [3, 7]  # Connections between upper and lower planes
     ]
     for c in connections:
-        mlab.plot3d(v[0,c],v[1,c],v[2,c],color=(0,1,0))
+        mlab.plot3d(v[0,c],v[1,c],v[2,c],color=color)
 
 def point_inside(rectangle, point):
     firstcorner, secondcorner = rectangle
@@ -149,9 +149,9 @@ def in_hull(p,hull):
 
 
 # Raw Data directory information
-basedir = '/home/gengshan/wnov/kitti/'
+basedir = '/data/KITTI/'
 date = '2011_09_26'
-drive = '0052'
+drive = '0020'
 
 dataset = pykitti.raw(basedir, date, drive)
 tracklet_rects, tracklet_types, tracklet_ids = load_tracklets_for_frames(len(list(dataset.velo)),\
@@ -178,7 +178,8 @@ for i,velo in enumerate(dataset.velo):
     
     tracklet_types
     for j,box in enumerate(tracklet_rects[i]):
-        draw_box(box)
+        col = tuple(colors[tracklet_ids[i][j]%color_num])
+        draw_box(box, col)
         idx = in_hull(velo[:,:3],box.T)
         mlab.points3d(
             velo[idx, 0],   # x
@@ -188,7 +189,7 @@ for i,velo in enumerate(dataset.velo):
             #velo[idx, 3],   # Height data used for shading
             mode="point", # How to render each point {'point', 'sphere' , 'cube' }
             colormap='spectral',  # 'bone', 'copper',
-            color=tuple(colors[tracklet_ids[i][j]%color_num]),     # Used a fixed (r,g,b) color instead of colormap
+            color=col,     # Used a fixed (r,g,b) color instead of colormap
             #color=(0,1,0),     # Used a fixed (r,g,b) color instead of colormap
             scale_factor=100,     # scale of the points
             line_width=10,        # Scale of the line, if any
