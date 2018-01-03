@@ -18,8 +18,8 @@ args = parser.parse_args()
 
 
 # color map
-color_num = 20; cmap = cm.get_cmap('tab20')
-# colors = cmap(np.linspace(0,255,color_num, dtype=np.int32))[:,:3]
+color_num = 20
+cmap = cm.get_cmap('tab20')
 colors = cmap(range(20))[:,:3]
 
 # Raw Data directory information
@@ -34,9 +34,6 @@ tracklet_rects, tracklet_types, tracklet_ids = load_tracklets_for_frames(len(lis
                '{}/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(basedir,date, date, drive))
 
 # view point
-#config = (-160.72255236439889, 73.322705349553033, 47.036193498835345, [ 10.,   1.,   1.])
-# config = (-160.72255236439889, 73.322705349553033, 83.327485990990283, [ 10.,   1.,   1.])
-# config=(120.23092410415794, 70.545295075710314, 56.913794133592624,[ 10.,   1.,   1.])
 v1 = next(iter(itertools.islice(dataset.oxts, 0, None))).T_w_imu.dot([0,0,0,1])
 v2 = next(iter(itertools.islice(dataset.oxts, 1, None))).T_w_imu.dot([0,0,0,1])
 vec = (v1 - v2)[:2]
@@ -44,13 +41,15 @@ deg = degrees(atan2(vec[1],vec[0]))
 config=(deg, 70.545295075710314, 56.913794133592624,[ 0.,   1.,   1.])
 
 # begin drawing
-fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
 if not os.path.exists(outdir):
     os.makedirs(outdir)
 
 ori=np.zeros((0,4))
+fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
 for i,velo in enumerate(dataset.velo):
-    mlab.clf()
+    if i%30!=0:
+        continue
+    # mlab.clf()
     oxts_pose = next(iter(itertools.islice(dataset.oxts, i, None))).T_w_imu
     oxts_pose = oxts_pose.dot( np.linalg.inv(dataset.calib.T_velo_imu) )
     velo = np.hstack( (velo[:,:3],np.ones((velo.shape[0],1))) )
@@ -59,6 +58,7 @@ for i,velo in enumerate(dataset.velo):
     mlab.points3d(ori[:,0],ori[:,1],ori[:,2],color=(1,0,0),scale_factor=0.5)
     filled_idx = np.zeros((velo.shape[0],),dtype=bool)
     
+    # print bbox objects
     for j,box in enumerate(tracklet_rects[i]):
         #if not tracklet_ids[i][j] == 0:
         #    continue
@@ -78,6 +78,8 @@ for i,velo in enumerate(dataset.velo):
             line_width=10,
         )
         filled_idx |= idx
+    
+    # print other points
     mlab.points3d(
            velo[~filled_idx, 0],   # x
            velo[~filled_idx, 1],   # y
@@ -88,6 +90,5 @@ for i,velo in enumerate(dataset.velo):
            line_width=10,        # Scale of the line, if any
     )
     mlab.view(*config)
-    # mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i),magnification=2)
-    mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
-# mlab.show(stop=True)
+    # mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+mlab.show()
