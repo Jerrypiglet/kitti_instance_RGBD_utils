@@ -4,10 +4,10 @@ import pdb
 from sklearn.cluster import KMeans, MeanShift, estimate_bandwidth, DBSCAN
 
 
-def filter_ground(velo, cen):
+def filter_ground(velo, cen, th=20):
     idxs = velo[:,2] > (cen[-1][2] - 1.6)
-    idxs &= norm(velo[:,:3] - cen[-1,:3], axis=1) < 20
-    draw_cluster(velo[idxs], (1,1,1))
+    idxs &= norm(velo[:,:2] - cen[-1,:2], axis=1) < th
+    # draw_cluster(velo[idxs], (1,1,1))
     return velo[idxs]
 
 

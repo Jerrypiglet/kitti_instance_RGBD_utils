@@ -69,10 +69,9 @@ for i,velo in enumerate(dataset.velo):
 
     labels = cluster_points(velo, n_clusters=n_clusters)
     manager.update(velo, labels)
-    pdb.set_trace()
-    for j in np.unique(labels):
-        col = tuple(colors[j%color_num])
-        draw_cluster(velo[labels==j], col)
+    for trk in manager.trks:
+        col = tuple(colors[trk.id%color_num])
+        draw_cluster(trk.points, col)
     
     # print bbox objects
     #filled_idx = np.zeros((velo.shape[0],),dtype=bool)

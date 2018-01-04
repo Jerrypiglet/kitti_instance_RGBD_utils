@@ -9,6 +9,7 @@ from source.utils import load_tracklets_for_frames, point_inside, in_hull, draw
 from source import parseTrackletXML as xmlParser
 import argparse
 from matplotlib import cm
+from cluster_pcs.filters import *
 from math import atan2, degrees
 
 parser=argparse.ArgumentParser()
@@ -39,25 +40,29 @@ v2 = next(iter(itertools.islice(dataset.oxts, 1, None))).T_w_imu.dot([0,0,0,1])
 vec = (v1 - v2)[:2]
 deg = degrees(atan2(vec[1],vec[0]))
 config=(deg, 70.545295075710314, 56.913794133592624,[ 0.,   1.,   1.])
+# config=(deg, 35.545295075710314, 556.913794133592624,[ 0.,   1.,   1.])
 
 # begin drawing
 if not os.path.exists(outdir):
     os.makedirs(outdir)
 
-ori=np.zeros((0,4))
+cen=np.zeros((0,4))
 fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
 for i,velo in enumerate(dataset.velo):
-    if i%30!=0:
-        continue
+    #if i%10!=0:
+    #    continue
     # mlab.clf()
     oxts_pose = next(iter(itertools.islice(dataset.oxts, i, None))).T_w_imu
     oxts_pose = oxts_pose.dot( np.linalg.inv(dataset.calib.T_velo_imu) )
     velo = np.hstack( (velo[:,:3],np.ones((velo.shape[0],1))) )
     velo = np.asarray([oxts_pose.dot(point_imu) for point_imu in velo])
-    ori = np.vstack((ori, oxts_pose.dot([0,0,0,1])))
-    mlab.points3d(ori[:,0],ori[:,1],ori[:,2],color=(1,0,0),scale_factor=0.5)
+
+    cen = np.vstack((cen, oxts_pose.dot([0,0,0,1])))
+    mlab.points3d(cen[:,0],cen[:,1],cen[:,2],color=(1,0,0),scale_factor=0.5)
+
+    velo = filter_ground(velo,cen,th=1000)
+
     filled_idx = np.zeros((velo.shape[0],),dtype=bool)
-    
     # print bbox objects
     for j,box in enumerate(tracklet_rects[i]):
         #if not tracklet_ids[i][j] == 0:
@@ -90,5 +95,5 @@ for i,velo in enumerate(dataset.velo):
            line_width=10,        # Scale of the line, if any
     )
     mlab.view(*config)
-    # mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+    mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
 mlab.show()
