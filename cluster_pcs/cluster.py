@@ -21,8 +21,6 @@ class cluster_manager(object):
             if i == -1:
                 continue
             new_clus = cluster(points[idxs==i],self.count)
-            #if new_clus.size < 20:
-            #    continue
             #draw_class.draw_cluster(new_clus,self.det_plot)
             #draw_class.draw_label(new_clus,self.det_plot)
             dets.append(new_clus)
@@ -122,10 +120,10 @@ class cluster(object):
         # print('cluster %d: size=%d, std=%f'%(self.id, self.size, self.std))
 
     def update(self,det):
-        if self.vel > 0.5:
-            self.points = det.points
-        else:
-            self.points = np.concatenate((self.points, det.points))
-            
-        self.kf.update(np.expand_dims(np.mean(self.points,0),1))
+        #if self.vel > 0.5:
+        #    self.points = det.points
+        #else:
+        #    self.points = np.concatenate((self.points, det.points))
+        self.points = np.concatenate((self.points, det.points))
+        # self.kf.update(np.expand_dims(np.mean(self.points,0),1))
         self.build_features()
