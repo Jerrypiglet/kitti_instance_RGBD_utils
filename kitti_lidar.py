@@ -3,7 +3,7 @@ import pdb
 import pykitti  # install using pip install pykitti
 import os
 import numpy as np
-#from mayavi import mlab
+from mayavi import mlab
 import time
 from source.utils import load_tracklets_for_frames, point_inside, in_hull
 from source import parseTrackletXML as xmlParser
@@ -42,10 +42,15 @@ if not os.path.exists(outdir):
 
 cen=np.zeros((0,4))
 prev_velo = None
-#reg = pcl.IterativeClosestPointNonLinear()
-#fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
+reg = pcl.IterativeClosestPointNonLinear()
+fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
 pdb.set_trace()
-visual = pcl.pcl_visualization.CloudViewing()
+fig = pcl.pcl_visualization.CloudViewing()
+o = pcl.PointCloud()
+o.x = 1.0;
+o.y = 0;
+o.z = 0;
+fig.addSphere (o, 0.25, "sphere", 0);
 for i,velo in enumerate(dataset.velo):
     oxts_pose = next(iter(itertools.islice(dataset.oxts, i, None))).T_w_imu
     oxts_pose = oxts_pose.dot( np.linalg.inv(dataset.calib.T_velo_imu) )
