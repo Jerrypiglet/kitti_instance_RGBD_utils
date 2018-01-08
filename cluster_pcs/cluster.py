@@ -81,7 +81,8 @@ class cluster_manager(object):
 
         mlab.clf(self.main_plot)
         for i,trk in enumerate(self.trks):
-            draw_class.draw_cluster(trk,self.main_plot)
+            draw_class.draw_cluster(trk.points,trk.id,self.main_plot)
+            draw_class.draw_arrow(trk,self.main_plot)
             draw_class.draw_label(trk,self.main_plot)
             
 

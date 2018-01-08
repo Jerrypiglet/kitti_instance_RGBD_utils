@@ -5,7 +5,7 @@ import os
 import numpy as np
 from mayavi import mlab
 import time
-from source.utils import load_tracklets_for_frames, point_inside, in_hull, draw
+from source.utils import load_tracklets_for_frames
 from source import parseTrackletXML as xmlParser
 import argparse
 from math import atan2, degrees
@@ -51,14 +51,13 @@ for i,velo in enumerate(dataset.velo):
     oxts_pose = next(iter(itertools.islice(dataset.oxts, i, None))).T_w_imu
     oxts_pose = oxts_pose.dot( np.linalg.inv(dataset.calib.T_velo_imu) )  # world-velo
 
-    # get points in first frame world coord
-    velo = np.hstack( (velo[:,:3],np.ones((velo.shape[0],1))) )
-    velo = np.asarray([oxts_pose.dot(p) for p in velo])
+    # register points to world coord
+    velo = np.hstack( (velo[:,:3],np.ones((velo.shape[0],1))) ).dot(oxts_pose.T)
 
-    # print robot centers
+    # register robot center
     cen = np.vstack((cen, oxts_pose.dot([0,0,0,1])))
 
-    velo = filter_ground(velo,cen,th=20)
+    velo = filter_ground(velo,cen,th=10)
 
     labels = cluster_points(velo, n_clusters=n_clusters)
     manager.update(velo, labels)

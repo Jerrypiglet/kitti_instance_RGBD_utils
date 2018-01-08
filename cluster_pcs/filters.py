@@ -32,12 +32,17 @@ class draw_class(object):
     color_num = 20
     cmap = cm.get_cmap('tab20')
     colors = cmap(range(20))[:,:3]
+    connections = [
+        [0, 1], [1, 2], [2, 3], [3, 0],  # Lower plane parallel to Z=0 plane
+        [4, 5], [5, 6], [6, 7], [7, 4],  # Upper plane parallel to Z=0 plane
+        [0, 4], [1, 5], [2, 6], [3, 7]  # Connections between upper and lower planes
+    ]
 
     @staticmethod
     @on_trait_change('n_meridional,n_longitudinal,scene.activated')
-    def draw_cluster(trk,handle):
-        velo = trk.points
-        col = tuple(draw_class.colors[trk.id%draw_class.color_num])
+    def draw_cluster(velo, cid=None, handle=None):
+        if handle==None: handle = mlab.gcf()
+        col = (1,1,1) if cid==None else tuple(draw_class.colors[cid%draw_class.color_num])
             
         mlab.points3d(
             velo[:, 0],   # x
@@ -50,9 +55,14 @@ class draw_class(object):
             figure=handle
         )
 
-        
-        draw_class.draw_arrow(trk,handle)
 
+    @staticmethod
+    def draw_box(box,cid,handle=None):
+        if handle==None: handle = mlab.gcf()
+        col = tuple(draw_class.colors[cid%draw_class.color_num])
+
+        for c in draw_class.connections:
+            mlab.plot3d(box[0,c],box[1,c],box[2,c],color=col,figure=handle)
 
     @staticmethod
     def draw_point(trk,handle):

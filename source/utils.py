@@ -4,14 +4,6 @@ import parseTrackletXML as xmlParser
 from scipy.spatial import Delaunay
 
 
-class draw(object):
-    connections = [
-        [0, 1], [1, 2], [2, 3], [3, 0],  # Lower plane parallel to Z=0 plane
-        [4, 5], [5, 6], [6, 7], [7, 4],  # Upper plane parallel to Z=0 plane
-        [0, 4], [1, 5], [2, 6], [3, 7]  # Connections between upper and lower planes
-    ]
-
-
 def point_inside(rectangle, point):
     firstcorner, secondcorner = rectangle
     xmin, xmax = firstcorner[0]-1, secondcorner[0]+1
