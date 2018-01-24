@@ -5,6 +5,7 @@ from filterpy.kalman import KalmanFilter
 from mayavi import mlab
 from cluster_pcs.filters import draw_class
 import pdb
+import pcl
 from scipy.spatial.distance import cdist
 
 class cluster_manager(object):
@@ -12,17 +13,19 @@ class cluster_manager(object):
         self.count = 0
         self.trks = []
         self.main_plot = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
-        #self.det_plot = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
+        self.det_plot = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
         
     def build_dets(self, points, idxs):
         dets = []
-        #mlab.clf(self.det_plot)
+        mlab.clf(self.det_plot)
         for i in np.unique(idxs):
             if i == -1:
                 continue
+            if np.sum(idxs==i)<100:
+                continue
             new_clus = cluster(points[idxs==i],self.count)
-            #draw_class.draw_cluster(new_clus,self.det_plot)
-            #draw_class.draw_label(new_clus,self.det_plot)
+            draw_class.draw_cluster(new_clus.points,new_clus.id,self.det_plot)
+            draw_class.draw_label(new_clus,self.det_plot)
             dets.append(new_clus)
             self.count += 1
         return dets
@@ -35,9 +38,14 @@ class cluster_manager(object):
             for t,trk in enumerate(self.trks):
                 iou_matrix[d,t] = norm(det.center - trk.kf.x[:3].flatten())
 
-        det_table = [i.id for i in dets]
-        trk_table = [i.id for i in self.trks]
-        matched_indices = linear_assignment(iou_matrix)
+        #det_table = [i.id for i in dets]
+        #trk_table = [i.id for i in self.trks]
+        
+        det_t_r = np.where(np.sum(iou_matrix<2,1))[0]
+        trk_t_r = np.where(np.sum(iou_matrix<2,0))[0]
+        matched_indices = linear_assignment(iou_matrix[det_t_r][:,trk_t_r])
+        matched_indices[:,0] = [det_t_r[i] for i in matched_indices[:,0]]
+        matched_indices[:,1] = [trk_t_r[i] for i in matched_indices[:,1]]
 
         unmatched_detections = []
         for d,det in enumerate(dets):
@@ -50,7 +58,7 @@ class cluster_manager(object):
 
         matches = []
         for m in matched_indices:
-            if (iou_matrix[m[0],m[1]]>5):  # cannot be larger than 5 meters
+            if (iou_matrix[m[0],m[1]]>2):  # cannot be larger than 2 meters
                 unmatched_detections.append(m[0])
                 unmatched_trackers.append(m[1])
             else:
@@ -88,6 +96,11 @@ class cluster_manager(object):
 
 class cluster(object):
     def __init__(self, points, cid):
+        # voxelize
+        points = pcl.PointCloud(points[:,:3].astype(np.float32))
+        sor = points.make_voxel_grid_filter(); sor.set_leaf_size(0.1, 0.1, 0.1)
+        points = sor.filter().to_array()
+
         self.points = points[:,:3]
         self.id = cid
         self.build_features(init=True)
@@ -121,10 +134,23 @@ class cluster(object):
         # print('cluster %d: size=%d, std=%f'%(self.id, self.size, self.std))
 
     def update(self,det):
-        #if self.vel > 0.5:
-        #    self.points = det.points
-        #else:
-        #    self.points = np.concatenate((self.points, det.points))
-        self.points = np.concatenate((self.points, det.points))
-        # self.kf.update(np.expand_dims(np.mean(self.points,0),1))
+        if self.vel > 0.1:
+            self.points = det.points
+        else:
+            self.points = np.concatenate((self.points, det.points))
+            # registration
+            #self.points = pcl.PointCloud(self.points[:,:3].astype(np.float32))
+            #det.points = pcl.PointCloud(det.points[:,:3].astype(np.float32))
+            #pdb.set_trace()
+            #icp = det.points.make_IterativeClosestPoint()
+            #converged, transf, estimate, fitness = icp.icp(det.points, self.points)
+            #self.points = np.vstack((estimate.to_array(), self.points.to_array()))
+    
+
+        # voxelize
+        self.points = pcl.PointCloud(self.points[:,:3].astype(np.float32))
+        sor = self.points.make_voxel_grid_filter(); sor.set_leaf_size(0.1, 0.1, 0.1)
+        self.points = sor.filter().to_array()
+
+        self.kf.update(np.expand_dims(np.mean(self.points,0),1))
         self.build_features()

@@ -68,7 +68,7 @@ class draw_class(object):
     def draw_point(trk,handle):
         p = trk.kf.x[:3].flatten()
         col = tuple(draw_class.colors[trk.id%draw_class.color_num])
-        mlab.points3d(p[0],p[1],p[2]+2,color=col,scale_factor=0.3,figure=handle)
+        mlab.points3d(p[0],p[1],p[2]+2,color=col,scale_factor=0.2,figure=handle, mode='cube')
 
 
     @staticmethod
@@ -85,4 +85,4 @@ class draw_class(object):
         col = tuple(draw_class.colors[trk.id%draw_class.color_num])
 
         x,y,z = trk.center; u,v,w = add
-        mlab.quiver3d(x,y,z+2,u,v,w,color=col,line_width=3., scale_factor=1., scale_mode='vector',figure=handle)
+        mlab.quiver3d(x,y,z+2,u,v,w,color=col,line_width=3., scale_factor=3., scale_mode='vector',figure=handle)

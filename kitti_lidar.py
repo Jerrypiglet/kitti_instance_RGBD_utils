@@ -9,9 +9,9 @@ from source.utils import load_tracklets_for_frames, point_inside, in_hull
 from source import parseTrackletXML as xmlParser
 import argparse
 from matplotlib import cm
-#from cluster_pcs.filters import *
+from cluster_pcs.filters import *
 from math import atan2, degrees
-import pcl, pcl.pcl_visualization
+import pcl
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--fdir',type=str,help='dir of format base/data/drive',default='/data/KITTI/2011_09_26/2011_09_26_drive_0005_sync')
@@ -44,13 +44,6 @@ cen=np.zeros((0,4))
 prev_velo = None
 reg = pcl.IterativeClosestPointNonLinear()
 fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
-pdb.set_trace()
-fig = pcl.pcl_visualization.CloudViewing()
-o = pcl.PointCloud()
-o.x = 1.0;
-o.y = 0;
-o.z = 0;
-fig.addSphere (o, 0.25, "sphere", 0);
 for i,velo in enumerate(dataset.velo):
     oxts_pose = next(iter(itertools.islice(dataset.oxts, i, None))).T_w_imu
     oxts_pose = oxts_pose.dot( np.linalg.inv(dataset.calib.T_velo_imu) )
@@ -58,15 +51,18 @@ for i,velo in enumerate(dataset.velo):
     velo = np.hstack( (velo[:,:3],np.ones((velo.shape[0],1))) ).dot(oxts_pose.T)
 
     cen = np.vstack((cen, oxts_pose.dot([0,0,0,1])))
-    #mlab.points3d(cen[:,0],cen[:,1],cen[:,2],color=(1,0,0),scale_factor=0.5)
+    mlab.points3d(cen[:,0],cen[:,1],cen[:,2],color=(1,0,0),scale_factor=0.5)
     
 
     # registration
-    #pcl_velo = pcl.PointCloud(velo[:,:3].astype(np.float32))
-    #if not prev_velo == None:
-    #    reg.icp_nl(prev_velo, pcl_velo)
-    #prev_velo = pcl_velo
+    pcl_velo = pcl.PointCloud(velo[:,:3].astype(np.float32))
+    if not prev_velo == None:
+        converged,transf,estimate,fitness = reg.icp_nl(prev_velo, pcl_velo)
+        pcl_velo = estimate
+    prev_velo = pcl_velo
 
+
+    velo = pcl_velo.to_array()
 
     velo = filter_ground(velo,cen,th=1000)
 
@@ -80,8 +76,8 @@ for i,velo in enumerate(dataset.velo):
         filled_idx |= idx
     
     # print other points
-    #draw_class.draw_cluster(velo[~filled_idx,:])
+    draw_class.draw_cluster(velo[~filled_idx,:])
 
-    #mlab.view(*config)
-    #mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
-#mlab.show()
+    mlab.view(*config)
+    # mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+mlab.show()
