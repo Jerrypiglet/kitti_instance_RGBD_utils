@@ -11,7 +11,7 @@ import argparse
 from matplotlib import cm
 from cluster_pcs.filters import *
 from math import atan2, degrees
-import pcl
+#import pcl
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--fdir',type=str,help='dir of format base/data/drive',default='/data/KITTI/2011_09_26/2011_09_26_drive_0005_sync')
@@ -41,8 +41,8 @@ if not os.path.exists(outdir):
     os.makedirs(outdir)
 
 cen=np.zeros((0,4))
-prev_velo = None
-reg = pcl.IterativeClosestPointNonLinear()
+#prev_velo = None
+#reg = pcl.IterativeClosestPointNonLinear()
 fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
 for i,velo in enumerate(dataset.velo):
     oxts_pose = next(iter(itertools.islice(dataset.oxts, i, None))).T_w_imu
@@ -52,17 +52,16 @@ for i,velo in enumerate(dataset.velo):
 
     cen = np.vstack((cen, oxts_pose.dot([0,0,0,1])))
     mlab.points3d(cen[:,0],cen[:,1],cen[:,2],color=(1,0,0),scale_factor=0.5)
+
     
 
-    # registration
-    pcl_velo = pcl.PointCloud(velo[:,:3].astype(np.float32))
-    if not prev_velo == None:
-        converged,transf,estimate,fitness = reg.icp_nl(prev_velo, pcl_velo)
-        pcl_velo = estimate
-    prev_velo = pcl_velo
-
-
-    velo = pcl_velo.to_array()
+    ## registration
+    #pcl_velo = pcl.PointCloud(velo[:,:3].astype(np.float32))
+    #if not prev_velo == None:
+    #    converged,transf,estimate,fitness = reg.icp_nl(prev_velo, pcl_velo)
+    #    pcl_velo = estimate
+    #prev_velo = pcl_velo
+    #velo = pcl_velo.to_array()
 
     velo = filter_ground(velo,cen,th=1000)
 
@@ -79,5 +78,6 @@ for i,velo in enumerate(dataset.velo):
     draw_class.draw_cluster(velo[~filled_idx,:])
 
     mlab.view(*config)
-    # mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+    mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+    mlab.clf()
 mlab.show()
