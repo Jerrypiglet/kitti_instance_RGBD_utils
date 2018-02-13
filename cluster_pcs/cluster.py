@@ -9,23 +9,26 @@ import pcl
 from scipy.spatial.distance import cdist
 
 class cluster_manager(object):
-    def __init__(self):
+    def __init__(self, debug=False):
         self.count = 0
         self.trks = []
-        self.main_plot = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
-        self.det_plot = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
+        self.debug = debug
+        if self.debug:
+            self.main_plot = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
+            self.det_plot = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
         
     def build_dets(self, points, idxs):
         dets = []
-        mlab.clf(self.det_plot)
+        if self.debug: mlab.clf(self.det_plot)
         for i in np.unique(idxs):
             if i == -1:
                 continue
-            if np.sum(idxs==i)<100:
+            if np.sum(idxs==i)<50:
                 continue
-            new_clus = cluster(points[idxs==i],self.count)
-            draw_class.draw_cluster(new_clus.points,new_clus.id,self.det_plot)
-            draw_class.draw_label(new_clus,self.det_plot)
+            new_clus = cluster(points[idxs==i], i)
+            if self.debug:
+                draw_class.draw_cluster(new_clus.points.to_array(),new_clus.id,self.det_plot)
+                draw_class.draw_label(new_clus,self.det_plot)
             dets.append(new_clus)
             self.count += 1
         return dets
@@ -74,7 +77,7 @@ class cluster_manager(object):
     def predict(self):
         for trk in self.trks:
             trk.kf.predict()
-            draw_class.draw_point(trk,self.main_plot)
+            if self.debug: draw_class.draw_point(trk,self.main_plot)
 
     def update(self,points, idxs):
         dets = self.build_dets(points, idxs)
@@ -87,21 +90,17 @@ class cluster_manager(object):
         for i in unmatched_dets:
             self.trks.append(dets[i])
 
-        mlab.clf(self.main_plot)
-        for i,trk in enumerate(self.trks):
-            draw_class.draw_cluster(trk.points,trk.id,self.main_plot)
-            draw_class.draw_arrow(trk,self.main_plot)
-            draw_class.draw_label(trk,self.main_plot)
+        if self.debug: 
+            mlab.clf(self.main_plot)
+            for i,trk in enumerate(self.trks):
+                draw_class.draw_cluster(trk.points.to_array(),trk.id,self.main_plot)
+                draw_class.draw_arrow(trk,self.main_plot)
+                draw_class.draw_label(trk,self.main_plot)
             
 
 class cluster(object):
     def __init__(self, points, cid):
-        # voxelize
-        points = pcl.PointCloud(points[:,:3].astype(np.float32))
-        sor = points.make_voxel_grid_filter(); sor.set_leaf_size(0.1, 0.1, 0.1)
-        points = sor.filter().to_array()
-
-        self.points = points[:,:3]
+        self.points = pcl.PointCloud(points[:,:3].astype(np.float32))
         self.id = cid
         self.build_features(init=True)
         self.init_kf()
@@ -123,9 +122,7 @@ class cluster(object):
         
 
     def build_features(self,init=False):
-        self.center = np.mean(self.points,0)
-        self.size = len(self.points)
-        self.std = np.mean(cdist(self.points,np.expand_dims(self.center,0),'euclidean'))
+        self.center = np.mean(self.points.to_array(),0)
         if init:
             self.vel = 0
         else:
@@ -134,23 +131,22 @@ class cluster(object):
         # print('cluster %d: size=%d, std=%f'%(self.id, self.size, self.std))
 
     def update(self,det):
-        if self.vel > 0.1:
+        if self.vel > 0.2:
             self.points = det.points
         else:
-            self.points = np.concatenate((self.points, det.points))
+            self.points = np.concatenate((self.points.to_array(), det.points.to_array()))
+            self.points = pcl.PointCloud(self.points[:,:3].astype(np.float32))
             # registration
             #self.points = pcl.PointCloud(self.points[:,:3].astype(np.float32))
             #det.points = pcl.PointCloud(det.points[:,:3].astype(np.float32))
-            #pdb.set_trace()
             #icp = det.points.make_IterativeClosestPoint()
             #converged, transf, estimate, fitness = icp.icp(det.points, self.points)
             #self.points = np.vstack((estimate.to_array(), self.points.to_array()))
     
 
         # voxelize
-        self.points = pcl.PointCloud(self.points[:,:3].astype(np.float32))
         sor = self.points.make_voxel_grid_filter(); sor.set_leaf_size(0.1, 0.1, 0.1)
-        self.points = sor.filter().to_array()
+        self.points = sor.filter()
 
-        self.kf.update(np.expand_dims(np.mean(self.points,0),1))
+        self.kf.update(np.expand_dims(np.mean(self.points.to_array(),0),1))
         self.build_features()
