@@ -2,7 +2,7 @@
 
 Mayavi(http://docs.enthought.com/mayavi/mayavi/mlab.html) is required to run the code.
 
-Quick installation in Python2 with Conda:
+Quick installation in **Python2** with Conda:
 
 https://stackoverflow.com/questions/41960672/how-to-install-mayavi-trait-backends
 
