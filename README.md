@@ -12,4 +12,4 @@ Usage:
 
 Example: 
 
-> python kitti_lidar.py --fdir ~/Downloads/2011_09_26/2011_09_26_drive_0005_sync/ --outdir ./
+> python kitti_lidar.py --fdir /home/rzhu/Documents/kitti_dataset/raw/2011_09_26/2011_09_26_drive_0005_sync/ --outdir ./

@@ -1,3 +1,5 @@
+# Written by Gengshan Yang
+
 import itertools
 import pdb
 import pykitti  # install using pip install pykitti
@@ -39,6 +41,10 @@ config=(deg, 70.545295075710314, 56.913794133592624,[ 0.,   1.,   1.])
 # begin drawing
 if not os.path.exists(outdir):
     os.makedirs(outdir)
+    print('======Made:', outdir)
+else:
+	print('======Exists:', outdir)
+
 
 cen=np.zeros((0,4))
 #prev_velo = None
@@ -79,5 +85,6 @@ for i,velo in enumerate(dataset.velo):
 
     mlab.view(*config)
     mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+    print('./output/%s_%s/test_%03d.png'%(date,drive,i))
     mlab.clf()
 mlab.show()
