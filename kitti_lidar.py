@@ -14,6 +14,7 @@ from matplotlib import cm
 from cluster_pcs.filters import *
 from math import atan2, degrees
 #import pcl
+import time
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--fdir',type=str,help='dir of format base/data/drive',default='/data/KITTI/2011_09_26/2011_09_26_drive_0005_sync')
@@ -83,8 +84,10 @@ for i,velo in enumerate(dataset.velo):
     # print other points
     draw_class.draw_cluster(velo[~filled_idx,:])
 
-    mlab.view(*config)
-    mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+    mlab.view(*config, figure=fig)
+    # mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
     print('./output/%s_%s/test_%03d.png'%(date,drive,i))
+    mlab.draw(figure=fig)
+    time.sleep(1)
     mlab.clf()
 mlab.show()

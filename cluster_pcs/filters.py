@@ -48,10 +48,11 @@ class draw_class(object):
             velo[:, 0],   # x
             velo[:, 1],   # y
             velo[:, 2],   # z
-            mode="point", # How to render each point {'point', 'sphere' , 'cube' }
+            np.ones_like(velo[:, 2]),   # scale
+            mode="sphere", # How to render each point {'point', 'sphere' , 'cube' }
             color=col,     # Used a fixed (r,g,b) color instead of colormap
-            scale_factor=100,
-            line_width=10,
+            scale_factor=0.07,
+            line_width=0,
             figure=handle
         )
 
