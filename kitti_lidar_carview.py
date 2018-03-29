@@ -5,7 +5,10 @@ import pdb
 import pykitti  # install using pip install pykitti
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 from mayavi import mlab
+mlab.options.offscreen = True
+from imayavi import *
 import time
 from source.utils import load_tracklets_for_frames, point_inside, in_hull
 from source import parseTrackletXML as xmlParser
@@ -14,7 +17,6 @@ from matplotlib import cm
 from cluster_pcs.filters import *
 from math import atan2, degrees
 #import pcl
-import time
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--fdir',type=str,help='dir of format base/data/drive',default='/data/KITTI/2011_09_26/2011_09_26_drive_0005_sync')
@@ -50,18 +52,23 @@ else:
 cen=np.zeros((0,4))
 #prev_velo = None
 #reg = pcl.IterativeClosestPointNonLinear()
-fig = mlab.figure(bgcolor=(0, 0, 0), size=(1080, 720))
+fig_scale = 300
+fig_ratio = [4, 3]
+plt_fig = plt.figure(1, figsize=(fig_ratio[0], fig_ratio[1]), dpi=fig_scale)
+ax_fig = plt_fig.add_axes([0, 0, 1, 1])
+ax_fig.axis('off')
+plt.show(block=False)
+fig = mlab.figure(bgcolor=(0, 0, 0), size=(fig_ratio[0]*fig_scale, fig_ratio[1]*fig_scale))
 for i,velo in enumerate(dataset.velo):
-    if i!=43:
-        continue
+    mlab.clf()
     # oxts_pose = next(iter(itertools.islice(dataset.oxts, i, None))).T_w_imu
     # oxts_pose = oxts_pose.dot( np.linalg.inv(dataset.calib.T_velo_imu) )
 
     # velo = np.hstack( (velo[:,:3],np.ones((velo.shape[0],1))) ).dot(oxts_pose.T)
-
     # cen = np.vstack((cen, oxts_pose.dot([0,0,0,1])))
 
     cen = np.vstack((cen, [0,0,0,1]))
+    
     mlab.points3d(cen[:,0],cen[:,1],cen[:,2],color=(1,0,0),scale_factor=0.5)
 
     
@@ -74,7 +81,7 @@ for i,velo in enumerate(dataset.velo):
     #prev_velo = pcl_velo
     #velo = pcl_velo.to_array()
 
-    velo = filter_ground(velo,cen,th=1000)
+    # velo = filter_ground(velo,cen,th=1000)
 
     # draw annotated objects
     filled_idx = np.zeros((velo.shape[0],),dtype=bool)
@@ -88,8 +95,18 @@ for i,velo in enumerate(dataset.velo):
     # print other points
     draw_class.draw_cluster(velo[~filled_idx,:])
 
-    mlab.view(*config, figure=fig)
-    # mlab.savefig('./output2/%s_%s/test_%03d.png'%(date,drive,i))
-    print('./output/%s_%s/test_%03d.png'%(date,drive,i))
-    # mlab.clf()
-    mlab.show()
+    # mlab.view(*config)
+    mlab.view(azimuth=180, elevation=75, distance=45, focalpoint=[20., 0., 0.])
+    # mlab.axes(x_axis_visibility=True, y_axis_visibility=True, z_axis_visibility=True, figure=fig)
+    # mlab.show()
+    # print(mlab.view())
+
+    plt_img = imayavi_return_inline(fig=fig)
+    # plt_img = imayavi_show_inline(fig=fig)
+    # plt.axis('off')
+    plt.imshow(plt_img)
+    plt_fig.canvas.draw()
+
+    mlab.savefig('./output/%s_%s/test_%03d.png'%(date,drive,i))
+    print('./output/%s_%s/test_%03d.png'%(date,drive,i), plt_img.shape)
+    # mlab.show()
