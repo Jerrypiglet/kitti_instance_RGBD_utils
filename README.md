@@ -1,4 +1,5 @@
-# kitti-lidar-utils
+# kitti_instance_RGBD_utils
+KITTI raw, depth, semantic, detection dataset; MV3D dataset.
 
 A data preparation script for instance-wise temporal RGB-D/3D data on KITTI.
 
