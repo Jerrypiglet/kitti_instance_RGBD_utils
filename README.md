@@ -23,7 +23,7 @@ https://stackoverflow.com/questions/41960672/how-to-install-mayavi-trait-backend
 
 ## Usage
 
-Check the ``kitti_lidar_reproj_ipynb.ipynb'' file for a demo.
+Check the ``kitti_lidar_reproj_ipynb.ipynb`` file for a demo.
 
 ## Obsolete
 
