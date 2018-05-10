@@ -41,10 +41,14 @@ def load_tracklets_for_frames(n_frames, xml_path):
     frame_tracklets = {}
     frame_tracklets_types = {}
     frame_tracklets_id = {}
+    frame_tracklets_Rmat = {}
+    frame_tracklets_t = {}
     for i in range(n_frames):
         frame_tracklets[i] = []
         frame_tracklets_types[i] = []
         frame_tracklets_id[i] = []
+        frame_tracklets_Rmat[i] = []
+        frame_tracklets_t[i] = []
     # loop over tracklets
     for i, tracklet in enumerate(tracklets):
         # this part is inspired by kitti object development kit matlab code: computeBox3D
@@ -73,8 +77,10 @@ def load_tracklets_for_frames(n_frames, xml_path):
             frame_tracklets[absoluteFrameNumber] += [cornerPosInVelo]
             frame_tracklets_types[absoluteFrameNumber] += [tracklet.objectType]
             frame_tracklets_id[absoluteFrameNumber] += [i]
+            frame_tracklets_Rmat[absoluteFrameNumber] += [rotMat]
+            frame_tracklets_t[absoluteFrameNumber] += [translation]
 
-    return (frame_tracklets, frame_tracklets_types, frame_tracklets_id)
+    return (frame_tracklets, frame_tracklets_types, frame_tracklets_id, frame_tracklets_Rmat, frame_tracklets_t)
 
 
 # Print iterations progress
