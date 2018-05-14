@@ -1,0 +1,21 @@
+
+Making a release
+-----------------
+
+Updating the docs for the release
+..................................
+
+* Update the docs images (you need a _working_ version of Mayavi for
+  this):
+
+    cd docs/source
+    python render_images.py
+
+How the automatic doc references are generated
+----------------------------------------------
+
+The automatic references for mlab are generated using the
+mlab_reference.py script in the root directory. This script defines a
+class to explore a module and generate rest files for documentation. In
+particular, it looks for example code in test functions and resulting
+images.
