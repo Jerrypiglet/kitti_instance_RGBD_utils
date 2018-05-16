@@ -2,14 +2,12 @@
 
 A data preparation script for instance-wise temporal RGB-D/3D data on KITTI.
 
-Each sample consists of:
-
-one car sequence with:
+Each sample consists of one car sequence with:
 - N RGB frames cropped out;
-- N reprojected sparse depth from KITTI raw data
-- Style and pose initialization from MV3D dataset for the first frame in the sequence
-- 2D/3D bounding boxes
-- Silhouette(s) for some frames (for a subset of the samples)
+- N reprojected sparse depth from KITTI raw data;
+- Style and pose initialization from MV3D dataset for the first frame in the sequence;
+- 2D/3D bounding boxes;
+- Silhouette(s) for some frames (not for all samples because only 200 frames of KITTI are semantically labelled).
 
 ## Requirements    
 
