@@ -1,16 +1,15 @@
 # kitti_instance_RGBD_utils
-KITTI raw, depth, semantic, detection dataset; MV3D dataset.
 
 A data preparation script for instance-wise temporal RGB-D/3D data on KITTI.
 
-Each sample consisting of:
+Each sample consists of:
 
-one car with:
+one car sequence with:
 - N RGB frames cropped out;
 - N reprojected sparse depth from KITTI raw data
 - Style and pose initialization from MV3D dataset for the first frame in the sequence
 - 2D/3D bounding boxes
-- Silhouette in the first frame (for a subset of the samples)
+- Silhouette(s) for some frames (for a subset of the samples)
 
 ## Requirements    
 
