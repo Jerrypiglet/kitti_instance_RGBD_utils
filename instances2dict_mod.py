@@ -5,10 +5,12 @@
 
 from __future__ import print_function
 import os, sys
+from PIL import Image
+import numpy as np
 
 # Cityscapes imports
 from instance import *
-sys.path.append( os.path.normpath( os.path.join( os.path.dirname( __file__ ) , '..' , 'helpers' ) ) )
+sys.path.append('/home/rzhu/Documents/kitti_dataset/semantics/devkit/helpers')
 from csHelpers import *
 
 def instances2dict(imageFileList, verbose=False):
@@ -52,14 +54,14 @@ def instances2dict(imageFileList, verbose=False):
 
     return instanceDict, imgNp
 
-def main(argv):
-    fileList = []
-    # if (len(argv) > 2):
-    for arg in argv:
-        if ("png" in arg):
-            fileList.append(arg)
-    instances_dict = instances2dict(fileList, True)
-    print(instances_dict)
+# def main(argv):
+#     fileList = []
+#     # if (len(argv) > 2):
+#     for arg in argv:
+#         if ("png" in arg):
+#             fileList.append(arg)
+#     instances_dict = instances2dict(fileList, True)
+#     print(instances_dict)
 
-if __name__ == "__main__":
-    main(sys.argv[1:])
+# if __name__ == "__main__":
+#     main(sys.argv[1:])
