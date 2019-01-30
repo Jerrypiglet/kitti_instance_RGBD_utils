@@ -137,7 +137,7 @@ def read_calib_file(path):
             if float_chars.issuperset(value):
                 # try to cast to float array
                 try:
-                    data[key] = np.array(map(float, value.split(' ')))
+                    data[key] = np.array([float(v) for v in value.split(' ')])
                 except ValueError:
                     # casting error: data[key] already eq. value, so pass
                     pass
