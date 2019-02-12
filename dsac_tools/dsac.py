@@ -1,12 +1,12 @@
 import torch
 import torch.nn.functional as F
-
 import random
 
 # import os
 # import sys
 # sys.path.append(os.getcwd())
-from .utils_F import *
+# from .utils_F import *
+import dsac_tools.utils_F as utils_F
 import numpy as np
 np.set_printoptions(precision=4)
 np.set_printoptions(suppress=True)
@@ -48,7 +48,7 @@ class DSAC:
 		X_sample = X[idx, :]
 		Y_sample = Y[idx, :]
 
-		return F_from_XY(X_sample, Y_sample), idx
+		return utils_F._F_from_XY(X_sample, Y_sample), idx
 
 	def __soft_inlier_count(self, H, X, Y):
 		'''
@@ -61,16 +61,16 @@ class DSAC:
 		'''
 
 		# point line distances
-		dists = sampson_dist(H, X, Y, if_homo=False)
+		dists_sampson = utils_F._sampson_dist(H, X, Y, if_homo=False)
 		# print(dists.detach().numpy())
 		# print(np.max(dists.detach().numpy()))
 
 		# soft inliers
-		dists = 1 - torch.sigmoid(self.inlier_beta * (dists - self.inlier_thresh))
+		dists = 1 - torch.sigmoid(self.inlier_beta * (dists_sampson - self.inlier_thresh))
 		# print(dists.detach().numpy())
 		score = torch.sum(dists)
 
-		return score, dists
+		return score, dists, dists_sampson
 
 	# def __refine_hyp(self, x, y, weights):
 	# 	'''
@@ -137,6 +137,8 @@ class DSAC:
 
 		hyp_losses = torch.zeros([self.hyps, 1]) # loss of each hypothesis
 		hyp_scores = torch.zeros([self.hyps, 1]) # score of each hypothesis
+		self.inlier_scores = torch.zeros([self.hyps, self.N]) # score of each corre. w.r.t each hypo
+		self.sampson_dists = torch.zeros([self.hyps, self.N]) # Sampson distance of each corre. w.r.t each hypo
 
 		self.max_score = 0 	# score of best hypothesis
 
@@ -152,7 +154,9 @@ class DSAC:
 			H, idx = self.__sample_hyp(X, Y)
 
 			# === step 2: score hypothesis using soft inlier count ====
-			score, dists = self.__soft_inlier_count(H, X, Y)
+			score, dists, dists_sampson = self.__soft_inlier_count(H, X, Y)
+			self.inlier_scores[h, :] = dists
+			self.sampson_dists[h, :] = dists_sampson
 
 			# === step 3: refine hypothesis ===========================
 			# slope, intercept = self.__refine_hyp(x, y, dists)
@@ -178,6 +182,8 @@ class DSAC:
 				# self.est_losses[b] = loss
 				# self.est_parameters[b] = hyp
 				self.best_H = H
+				self.best_H_idx = h
+				self.best_dists = dists
 				self.best_corres_idx = idx
 				# self.batch_inliers[b] = inliers
 
@@ -195,5 +201,4 @@ class DSAC:
 
 		# return avg_exp_loss / batch_size, avg_top_loss / batch_size
 
-		return N_scores
-		 # / (N_counts+1e-10)
+		return N_scores / (N_counts+1e-10)

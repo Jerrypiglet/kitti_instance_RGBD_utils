@@ -1,7 +1,9 @@
-import os
-import sys
-sys.path.append(os.getcwd())
-from .utils_F import *
+# import os
+# import sys
+# sys.path.append(os.getcwd())
+# from .utils_F import *
+import dsac_tools.utils_F as utils_F
+import torch
 
 class HLoss:
 	'''
@@ -23,5 +25,5 @@ class HLoss:
 		# loss_reproj = torch.mean(torch.norm(Y - HX, dim=1))
 		# return loss_reproj
 
-		errors = sampson_dist(H, X, Y, if_homo=False)
+		errors = utils_F._sampson_dist(H, X, Y, if_homo=False)
 		return torch.mean(errors)
