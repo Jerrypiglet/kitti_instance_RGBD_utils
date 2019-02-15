@@ -8,6 +8,7 @@ import pykitti  # install using pip install pykitti
 from kitti_tools.kitti_raw_loader import *
 import dsac_tools.utils_misc as utils_misc
 import dsac_tools.utils_vis as utils_vis
+import dsac_tools.utils_geo as utils_geo
 
 class KittiLoader(object):
     def __init__(self, KITTI_ROOT_PATH):
@@ -56,7 +57,7 @@ class KittiLoader(object):
         oxts_path = self.fdir_path + 'oxts/data/*.txt'
         oxts = sorted(glob.glob(oxts_path))
 
-        scene_data = {'cid': '', 'dir': self.fdir_path, 'speed': [], 'frame_id': [], 'pose':[], 'rel_path': ''}
+        scene_data = {'cid': '', 'dir': self.fdir_path, 'speed': [], 'frame_id': [], 'pose':[], 'pose_matrix':[], 'rel_path': ''}
         scale = None
         origin = None
         imu2velo_dict = read_calib_file(self.fdir_path+'../calib_imu_to_velo.txt')
@@ -67,7 +68,8 @@ class KittiLoader(object):
         imu2velo_mat = transform_from_rot_trans(imu2velo_dict['R'], imu2velo_dict['T'])
         cam_2rect_mat = transform_from_rot_trans(cam2cam_dict['R_rect_00'], np.zeros(3))
 
-        imu2cam = cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
+        self.imu2cam = self.Rtl_gt @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
+        # imu2cam = self.Rtl_gt @ self.R_cam2rect @ self.velo2cam @ imu2velo_mat
         for n, f in enumerate(oxts):
             metadata = np.genfromtxt(f)
             speed = metadata[8:11]
@@ -82,18 +84,26 @@ class KittiLoader(object):
             if origin is None:
                 origin = pose_matrix
 
-            odo_pose = imu2cam @ np.linalg.inv(origin) @ pose_matrix @ np.linalg.inv(imu2cam)
+            odo_pose = self.imu2cam @ np.linalg.inv(origin) @ pose_matrix @ np.linalg.inv(self.imu2cam)
+            # odo_pose = np.linalg.inv(origin) @ pose_matrix
+
             odo_pose_Rt = odo_pose[:3]
             R21 = odo_pose_Rt[:, :3]
             t21 = odo_pose_Rt[:, 3:4]
-            R12 = R21.T
-            t12 = -np.matmul(R12, t21)
+            # R12 = R21.T
+            # t12 = -np.matmul(R12, t21)
+
+            delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(np.hstack((R21, t21)))))
+            R12 = delta_Rtij[:, :3]
+            t12 = delta_Rtij[:, 3:4]
+
             Rt12 = np.hstack((R12, t12))
             scene_data['pose'].append(Rt12)
+            scene_data['pose_matrix'].append(pose_matrix)
 
         self.scene_data = scene_data
-        print('Scene pose loaded. First two poses:')
-        print(scene_data['pose'][:2])
+        # print('Scene pose loaded. First two poses:')
+        # print(scene_data['pose'][:2])
 
     def show_demo(self):
         velo_reproj_list = []
@@ -191,12 +201,13 @@ class KittiLoader(object):
     #     print(val_inds.shape)
         val_inds_list.append(val_inds)
 
-        val_inds_both = val_inds_list[0] & val_inds_list[1]
-    #     print(val_inds_both.shape)
-        val_idxes = [idx for idx in range(val_inds_both.shape[0]) if val_inds_both[idx]] # within indexes
+        # val_inds_both = val_inds_list[0] & val_inds_list[1]
+        # val_idxes = [idx for idx in range(val_inds_both.shape[0]) if val_inds_both[idx]] # within indexes
+
+        val_idxes = utils_misc.vis_masks_to_inds(val_inds_list[0], val_inds_list[1])
         return val_idxes, X_rect
 
-    def rectify_all(self):
+    def rectify_all(self, visualize=False):
         # for each frame, get the visible points on front view with identity left camera, as well as indexes of points on both left/right images
         self.val_idxes_list = []
         self.X_rect_list = []
@@ -204,6 +215,64 @@ class KittiLoader(object):
             velo = list(self.dataset.velo)[i] # [N, 4]
             velo = velo[:, :3]
             velo_reproj = utils_misc.homo_np(velo)
-            val_idxes, X_rect = self.rectify(velo_reproj, self.dataset_rgb[i][0], self.dataset_rgb[i][1], visualize=(i%100==0))
+            val_idxes, X_rect = self.rectify(velo_reproj, self.dataset_rgb[i][0], self.dataset_rgb[i][1], visualize=((i%100==0)&visualize))
             self.val_idxes_list.append(val_idxes)
             self.X_rect_list.append(X_rect)
+        print('Finished rectifying all frames.')
+
+    def get_ij(self, i, j, visualize=False):
+        """ Return frame i and j with point cloud from i, and relative camera pose [R|t] """
+        Rt0 = self.scene_data['pose'][0] # Identity, or = utils_misc.identity_Rt()
+        Rti = self.scene_data['pose'][i]
+        Rtj = self.scene_data['pose'][j]
+
+        # print('Rti', Rti)
+        # print('Rti', Rtj)
+
+        X_rect_i = self.X_rect_list[i]
+        # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(Rti)) @ utils_misc.Rt_pad(Rtj))
+        odo_pose = self.imu2cam @ np.linalg.inv(self.scene_data['pose_matrix'][i]) @ self.scene_data['pose_matrix'][j] @ np.linalg.inv(self.imu2cam) # camera motion
+        delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
+        print(delta_Rtij)
+
+
+        val_inds_i = utils_vis.reproj_and_scatter(Rt0, X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize)
+        val_inds_j = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[j][0], self, visualize=visualize)
+
+        X_rect_j = self.X_rect_list[j]
+        # val_inds_j = utils_vis.reproj_and_scatter(Rt0, X_rect_j, self.dataset_rgb[j][0], self, visualize=visualize)  
+        val_idxes = utils_misc.vis_masks_to_inds(val_inds_i, val_inds_j)
+
+        X_rect_i_vis = X_rect_i[:, val_idxes]
+
+        delta_Rtij_inv = utils_misc.Rt_depad(odo_pose) # camera motion
+
+        print(delta_Rtij_inv)
+
+        angle_R = utils_geo.rot12_to_angle_error(np.eye(3), delta_Rtij_inv[:, :3])
+        angle_t = utils_geo.vector_angle(np.array([[0.], [0.], [1.]]), delta_Rtij_inv[:, 3:4])
+
+        print('Between frame %d and %d: The rotation angle (degree) %.4f, and translation angle (degree) %.4f'%(i, j, angle_R, angle_t))
+
+
+        return X_rect_i, X_rect_i_vis, delta_Rtij, delta_Rtij_inv, self.dataset_rgb[i][0], self.dataset_rgb[j][0]
+
+    def get_i_lr(self, i, visualize=False):
+        """ Return frame i left and right with point cloud from i, and relative camera pose [R|t] """
+        Rt0 = self.scene_data['pose'][0] # Identity, or = utils_misc.identity_Rt()
+        # Rti = self.scene_data['pose'][i]
+        # Rtj = self.scene_data['pose'][j]
+
+        X_rect_i = self.X_rect_list[i]
+        # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(Rti)) @ utils_misc.Rt_pad(Rtj))
+        delta_Rtij = self.delta_Rtlr_gt
+
+        val_inds_i_l = utils_vis.reproj_and_scatter(Rt0, X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize)
+        val_inds_i_r = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[i][1], self, visualize=visualize)
+        val_idxes = utils_misc.vis_masks_to_inds(val_inds_i_l, val_inds_i_r)
+
+        X_rect_i_vis = X_rect_i[:, val_idxes]
+
+        delta_Rtij_inv = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(delta_Rtij))) # camera motion
+
+        return X_rect_i, X_rect_i_vis, delta_Rtij, delta_Rtij_inv, self.dataset_rgb[i][0], self.dataset_rgb[i][1]

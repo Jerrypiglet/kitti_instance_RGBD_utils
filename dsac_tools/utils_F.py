@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import dsac_tools.utils_misc as utils_misc
 import dsac_tools.utils_geo as utils_geo
+import dsac_tools.utils_vis as utils_vis
 
 # def E_from_XY(X, Y):
 #     # X, Y: [N, 2]
@@ -37,7 +38,7 @@ def _E_from_XY(X, Y, K):
     E = _F_to_E(F, K)
     return E
 
-def _F_from_XY(X, Y):
+def _F_from_XY(X, Y, W=None):
     # X, Y: [N, 2]
     xx = torch.cat([X.t(), Y.t()], dim=0)
     # print(xx.size())
@@ -46,6 +47,8 @@ def _F_from_XY(X, Y):
         xx[3, :] * xx[0, :], xx[3, :] * xx[1, :], xx[3, :],
         xx[0, :], xx[1, :], torch.ones_like(xx[0, :])
     ], dim=0).t()
+    if W is not None:
+        X = torch.mm(W, X)
     U, D, V = torch.svd(X)
     F_recover = torch.reshape(V[:, -1], (3, 3))
     # F_recover_rescale = F_recover / torch.norm(F_recover) * torch.norm(F)
@@ -103,7 +106,7 @@ def _get_M2s(E):
     M2s = [torch.cat((x, y), 1) for x, y in [(x,y) for x in R2s for y in t2s]]
     return R2s, t2s, M2s
 
-def _E_to_M(E_est_th, K, x1, x2, inlier_mask, delta_R_gt=None):
+def _E_to_M(E_est_th, K, x1, x2, inlier_mask, delta_Rt_gt=None):
     R2s, t2s, M2s = _get_M2s(E_est_th)
 
     R1 = np.eye(3)
@@ -119,36 +122,53 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask, delta_R_gt=None):
         # print(M2, np.linalg.det(R2))
 
         X_tri_homo = cv2.triangulatePoints(np.matmul(K, M1), np.matmul(K, M2), x1[inlier_mask].T, x2[inlier_mask].T)
-        X_tri_homo = cv2.triangulatePoints(np.matmul(K, M1), np.matmul(K, M2), x1[inlier_mask].T, x2[inlier_mask].T)
         X_tri = X_tri_homo[:3, :]/X_tri_homo[-1, :]
         C1 = -np.matmul(R1, t1) # https://math.stackexchange.com/questions/82602/how-to-find-camera-position-and-rotation-from-a-4x4-matrix
-        cheirality1 = np.matmul(R1[2:3, :], (X_tri-C1))
+        cheirality1 = np.matmul(R1[2:3, :], (X_tri-C1)) # https://cmsc426.github.io/sfm/
 
         X_tri_cam3 = np.matmul(R2, X_tri) + t2
         C2 = -np.matmul(R2, t2)
         cheirality2 = np.matmul(R2[2:3, :], (X_tri_cam3-C2))
-        cheirality_check = np.min(cheirality1)>0 and np.min(cheirality2)>0
+
+        # Get rid of small angle points. @Manmo: you should discard points that are beyond a depth threshold (say, more than 100m), or which subtend a small angle between the two cameras (say, less than 5 degrees).
+        v1s = (X_tri-C1).T
+        v2s = (X_tri-C2).T
+        angles_C1C2 = utils_geo.vectors_angle(v1s, v2s).T
+        angles_mask = angles_C1C2 > 2.
+        if not np.any(angles_mask):
+            cheirality_check = False
+            # print(angles_C1C2)
+        else:
+            cheirality_check = np.min(cheirality1[angles_mask])>0 and np.min(cheirality2[angles_mask])>0
         cheirality_checks.append(cheirality_check)
         if cheirality_check:
-            print(M2)
+            print('-- Good M:', M2)
             M2_list.append(M2)
-            # print(cheirality1)
-            # print(cheirality2)
-            print(X_tri[-1, :])
-            print(X_tri_cam3[-1, :])
+        # else:
+        #     print(X_tri[-1, angles_mask.reshape([-1])])
+        #     print(X_tri_cam3[-1, angles_mask.reshape([-1])])
 
     if np.sum(cheirality_checks)==1:
         Rt_idx = cheirality_checks.index(True)
         print('The %d_th Rt meets the Cheirality Condition! with [R|t]:'%Rt_idx)
-        print(M2s[Rt_idx].numpy())
+        M_inv = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(M2s[Rt_idx].numpy())))
+    
+        if delta_Rt_gt is not None:
+            R2 = M2s[Rt_idx][:, :3].numpy()
+            t2 = M2s[Rt_idx][:, 3:4].numpy()
+            # error_R = min([utils_geo.rot12_to_angle_error(R2.numpy(), delta_R_gt) for R2 in R2s])
+            # error_t = min(utils_geo.vector_angle(t2, delta_t_gt), utils_geo.vector_angle(-t2, delta_t_gt))
+
+            R2 = M_inv[:, :3]
+            t2 = M_inv[:, 3:4]
+            error_R = utils_geo.rot12_to_angle_error(R2, delta_Rt_gt[:, :3])
+            error_t = utils_geo.vector_angle(t2, delta_Rt_gt[:, 3:4])
+            print('Recovered by ours: The rotation error (degree) %.4f, and translation error (degree) %.4f'%(error_R, error_t))
+
+        print(M_inv)
     else:
         print('Error! %d of qualified [R|t] found!'%np.sum(cheirality_checks))
-    
-    if M2_list and (delta_R_gt is not None):
-        R2 = M2_list[0][:, :3]
-        error_R = min([utils_geo.rot12_to_angle_error(R2.numpy(), delta_R_gt) for R2 in R2s])
-        print('The rotation error (degree): ', error_R)
-    
+
     return M2_list
 
 
@@ -216,3 +236,30 @@ def _E_F_from_Rt(R, t, K):
     E_gt_th = torch.matmul(t_gt_x, R_th)
     F_gt_th = torch.matmul(torch.matmul(torch.inverse(K_th).t(), E_gt_th), torch.inverse(K_th))
     return E_gt_th, F_gt_th
+
+def vali_with_best10(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_two_frame_loader, DSAC_params):
+    """ Validate pose estimation with best 10 corres."""
+    # Validation: use best 10 corres with smalles Sampson distance to GT F to compute E and F
+    print('--------------- Check with best 20 corres. ---------------')
+    errors = _sampson_dist(F_gt_th, torch.from_numpy(x1).to(torch.float64), torch.from_numpy(x2).to(torch.float64), False)
+    sort_index = np.argsort(errors.numpy())
+    mask_index = sort_index[:20]
+    print('--- Best 20 errors', errors[mask_index].numpy())
+
+    # utils_vis.draw_corr_widths(img1_rgb_np, img2_rgb_np, x1[mask_index, :], x2[mask_index, :], np.zeros(x2[mask_index, :].shape[0])+2, '[Best 20] Sampson distance w.r.t. ground truth F (the thicker the worse corres.)', False)
+    E_est_th = _E_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), kitti_two_frame_loader.K_th)
+    print('+++ E est&GT', (E_est_th / torch.norm(E_est_th) * torch.norm(E_gt_th)).numpy())
+    print(E_gt_th.numpy())
+
+    R2s_list, t2s_list, M2_list = _get_M2s(E_est_th)
+    print('=== M', M2_list[0].numpy())
+
+    F_est_th = _F_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]))
+    print('--- F est&GT', (F_est_th / torch.norm(F_est_th) * torch.norm(F_gt_th)).numpy())
+    print(F_gt_th.numpy())
+
+    ## Check number of inliers w.r.t F_gt and thres
+    e = np.sort(errors.numpy().tolist())
+    print('--- %d/%d inliers.'%(sum(e<DSAC_params['inlier_thresh']), len(e)))
+
+    return mask_index[:8]

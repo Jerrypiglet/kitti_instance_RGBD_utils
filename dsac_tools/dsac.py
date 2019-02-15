@@ -72,39 +72,21 @@ class DSAC:
 
 		return score, dists, dists_sampson
 
-	# def __refine_hyp(self, x, y, weights):
-	# 	'''
-	# 	Refinement by weighted Deming regression.
+	def __refine_hyp(self, X, Y, Ws):
+		'''
+		Refinement by weighted Deming regression.
 
-	# 	Fits a line minimizing errors in x and y, implementation according to:
-	# 		'Performance of Deming regression analysis in case of misspecified
-	# 		analytical error ratio in method comparison studies'
-	# 		Kristian Linnet, in Clinical Chemistry, 1998
+		Fits a line minimizing errors in x and y, implementation according to:
+			'Performance of Deming regression analysis in case of misspecified
+			analytical error ratio in method comparison studies'
+			Kristian Linnet, in Clinical Chemistry, 1998
 
-	# 	x -- vector of x values
-	# 	y -- vector of y values
-	# 	weights -- vector of weights (1 per point)
-	# 	'''
+		x -- vector of x values
+		y -- vector of y values
+		weights -- vector of weights (1 per point)
+		'''
 
-	# 	ws = weights.sum()
-	# 	xm = (x * weights).sum() / ws
-	# 	ym = (y * weights).sum() / ws
-
-	# 	u = (x - xm)**2
-	# 	u = (u * weights).sum()
-
-	# 	q = (y - ym)**2
-	# 	q = (q * weights).sum()
-
-	# 	p = torch.mul(x - xm, y - ym)
-	# 	p = (p * weights).sum()
-
-	# 	slope = (q - u + torch.sqrt((u - q)**2 + 4*p*p)) / (2*p)
-	# 	intercept = ym - slope * xm
-
-	# 	return slope, intercept
-
-
+		return utils_F._F_from_XY(X, Y, torch.diag(Ws))
 
 	def __call__(self, X, Y, H_gt):
 		'''
@@ -159,11 +141,12 @@ class DSAC:
 			self.sampson_dists[h, :] = dists_sampson
 
 			# === step 3: refine hypothesis ===========================
-			# slope, intercept = self.__refine_hyp(x, y, dists)
+			# print(torch.sqrt(dists).numpy())
+			H = self.__refine_hyp(X, Y, torch.sqrt(dists))
 
-			# hyp = torch.zeros([2])
-			# hyp[1] = slope
-			# hyp[0] = intercept
+			# inlier_mask = dists_sampson<self.inlier_thresh
+			# if torch.sum(inlier_mask).numpy() > 10:
+			# 	H = utils_F._F_from_XY(X[inlier_mask, :], Y[inlier_mask, :])
 
 			# === step 4: calculate loss of hypothesis ================
 			loss = self.loss_function(H, X, Y)
