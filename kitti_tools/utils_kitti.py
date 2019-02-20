@@ -233,11 +233,10 @@ class KittiLoader(object):
         # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(Rti)) @ utils_misc.Rt_pad(Rtj))
         odo_pose = self.imu2cam @ np.linalg.inv(self.scene_data['pose_matrix'][i]) @ self.scene_data['pose_matrix'][j] @ np.linalg.inv(self.imu2cam) # camera motion
         delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
-        print(delta_Rtij)
 
 
-        val_inds_i = utils_vis.reproj_and_scatter(Rt0, X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize)
-        val_inds_j = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[j][0], self, visualize=visualize)
+        val_inds_i = utils_vis.reproj_and_scatter(Rt0, X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize, title_appendix='frame %d (left)'%i)
+        val_inds_j = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[j][0], self, visualize=visualize, title_appendix='frame %d (left)'%j)
 
         X_rect_j = self.X_rect_list[j]
         # val_inds_j = utils_vis.reproj_and_scatter(Rt0, X_rect_j, self.dataset_rgb[j][0], self, visualize=visualize)  
@@ -247,7 +246,7 @@ class KittiLoader(object):
 
         delta_Rtij_inv = utils_misc.Rt_depad(odo_pose) # camera motion
 
-        print(delta_Rtij_inv)
+        # print(delta_Rtij_inv)
 
         angle_R = utils_geo.rot12_to_angle_error(np.eye(3), delta_Rtij_inv[:, :3])
         angle_t = utils_geo.vector_angle(np.array([[0.], [0.], [1.]]), delta_Rtij_inv[:, 3:4])
@@ -267,8 +266,8 @@ class KittiLoader(object):
         # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(Rti)) @ utils_misc.Rt_pad(Rtj))
         delta_Rtij = self.delta_Rtlr_gt
 
-        val_inds_i_l = utils_vis.reproj_and_scatter(Rt0, X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize)
-        val_inds_i_r = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[i][1], self, visualize=visualize)
+        val_inds_i_l = utils_vis.reproj_and_scatter(Rt0, X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize, title_appendix='frame %d (left)'%i)
+        val_inds_i_r = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[i][1], self, visualize=visualize, title_appendix='frame %d (right)'%i)
         val_idxes = utils_misc.vis_masks_to_inds(val_inds_i_l, val_inds_i_r)
 
         X_rect_i_vis = X_rect_i[:, val_idxes]

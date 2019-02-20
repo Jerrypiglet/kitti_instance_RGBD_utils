@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import scipy
 import torch
 import matplotlib.pyplot as plt
 import dsac_tools.utils_vis as utils_vis
@@ -123,7 +124,7 @@ def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt,
     x2_sample = x2[random_idx, :]
 
     if visualize:
-        print('--------------- Sample points, and check epipolar and Sampson distances. ---------------')
+        print('>>>>>>>>>>>>>>>> Sample points, and check epipolar and Sampson distances. ---------------')
 
         ## Draw epipolar lines: by OpenCV
         show_epipolar_opencv(x1_sample, x2_sample, img1_rgb, img2_rgb, F_gt)
@@ -140,20 +141,135 @@ def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt,
         sampson_dist_gtF_plot = np.log(sampson_dist_gtF.numpy()+1)+1
         utils_vis.draw_corr_widths(img1_rgb_np, img2_rgb_np, x1_sample, x2_sample, sampson_dist_gtF_plot, 'Sampson distance w.r.t. ground truth F (the thicker the worse corres.)', False)
 
+        print('<<<<<<<<<<<<<<<< DONE. Sample points, and check epipolar and Sampson distances. ---------------')
+
     return random_idx, x1_sample, x2_sample
 
-def recover_camera(K, x1, x2, delta_Rtij_inv, threshold=0.1):
+def recover_camera_opencv(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1):
     # Compare with OpenCV with refs from:
     ## https://github.com/vcg-uvic/learned-correspondence-release/blob/16bef8a0293c042c0bd42f067d7597b8e84ef51a/tests.py#L232
     ## https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
     ## http://answers.opencv.org/question/90070/findessentialmat-or-decomposeessentialmat-do-not-work-correctly/
-    E, mask = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
-    points, R, t, mask = cv2.recoverPose(E, x1, x2)
-    print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0])) 
+
+    print('>>>>>>>>>>>>>>>> Running OpenCV camera pose estimation... ---------------')
+
+    # Mostly following: # https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
+
+    E_5point, mask = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+
+    # x1_norm = cv2.undistortPoints(np.expand_dims(x1, axis=1), cameraMatrix=K, distCoeffs=None) 
+    # x2_norm = cv2.undistortPoints(np.expand_dims(x2, axis=1), cameraMatrix=K, distCoeffs=None)
+    # E_5point, mask = cv2.findEssentialMat(x1_norm, x2_norm, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+
+    F_8point, _ = cv2.findFundamentalMat(x1, x2, method=cv2.RANSAC) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+    E_8point = K.T @ F_8point @ K
+    U,S,V = np.linalg.svd(E_8point)
+    E_8point = U @ np.diag([1., 1., 0.]) @ V
+
+    method_name = '5 point' if five_point else '8 point'
+    E_recover = E_5point if five_point else E_8point
+    # E_recover = E_5point
+    # if five_point:
+    points, R, t, mask = cv2.recoverPose(E_recover, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
+    # else:
+        # points, R, t, mask = cv2.recoverPose(E_recover, x1, x2)
+    print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0]))
+
+    # R_cam, t_cam = utils_geo.invert_Rt(R, t)
 
     error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:, :3])
     error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:, 3:4])
-    print('Recovered by OpenCV: The rotation error (degree) %.4f, and translation error (degree) %.4f'%(error_R, error_t))
+    print('Recovered by OpenCV %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
     print(np.hstack((R, t)))
-    return np.hstack((R, t))
+
+    # M_r = np.hstack((R, t))
+    # M_l = np.hstack((np.eye(3, 3), np.zeros((3, 1))))
+    # P_l = np.dot(K,  M_l)
+    # P_r = np.dot(K,  M_r)
+    # point_4d_hom = cv2.triangulatePoints(P_l, P_r, np.expand_dims(x1, axis=1), np.expand_dims(x2, axis=1))
+    # point_4d = point_4d_hom / np.tile(point_4d_hom[-1, :], (4, 1))
+    # point_3d = point_4d[:3, :].T
+    # scipy.io.savemat('test.mat', {'X': point_3d})
+
+    print('<<<<<<<<<<<<<<<< DONE Running OpenCV camera pose estimation. ---------------')
+
+    return np.hstack((R, t)), (error_R, error_t)
         
+# def recover_camera(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1):
+#     # Compare with OpenCV with refs from:
+#     ## https://github.com/vcg-uvic/learned-correspondence-release/blob/16bef8a0293c042c0bd42f067d7597b8e84ef51a/tests.py#L232
+#     ## https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
+#     ## http://answers.opencv.org/question/90070/findessentialmat-or-decomposeessentialmat-do-not-work-correctly/
+
+#     # E, mask = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+
+#     # x1_norm = cv2.undistortPoints(np.expand_dims(x1, axis=1), cameraMatrix=K, distCoeffs=None) 
+#     # x2_norm = cv2.undistortPoints(np.expand_dims(x2, axis=1), cameraMatrix=K, distCoeffs=None)
+#     # E_5point, mask = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+#     E, mask = cv2.findEssentialMat(x1, x2, method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+
+#     points, R, t, mask = cv2.recoverPose(E, x1, x2)
+#     print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0])) 
+
+#     R_cam, t_cam = utils_geo.invert_Rt(R, t)
+
+#     error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:, :3])
+#     error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:, 3:4])
+#     print('Recovered by OpenCV: The rotation error (degree) %.4f, and translation error (degree) %.4f'%(error_R, error_t))
+#     print(np.hstack((R, t)))
+
+#     return np.hstack((R, t)), (error_R, error_t)
+
+# def recover_camera_0(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1):
+#     # Compare with OpenCV with refs from:
+#     ## https://github.com/vcg-uvic/learned-correspondence-release/blob/16bef8a0293c042c0bd42f067d7597b8e84ef51a/tests.py#L232
+#     ## https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
+#     ## http://answers.opencv.org/question/90070/findessentialmat-or-decomposeessentialmat-do-not-work-correctly/
+#     E, mask = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+#     points, R, t, mask = cv2.recoverPose(E, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
+#     print(t)
+#     print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0])) 
+
+#     # R_cam, t_cam = utils_geo.invert_Rt(R, t)
+#     # print(t_cam)
+
+#     error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:, :3])
+#     error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:, 3:4])
+#     print('Recovered by OpenCV: The rotation error (degree) %.4f, and translation error (degree) %.4f'%(error_R, error_t))
+#     print(np.hstack((R, t)))
+#     return np.hstack((R, t)), (error_R, error_t)
+
+# def recover_camera_1(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1):
+#     # Compare with OpenCV with refs from:
+#     ## https://github.com/vcg-uvic/learned-correspondence-release/blob/16bef8a0293c042c0bd42f067d7597b8e84ef51a/tests.py#L232
+#     ## https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
+#     ## http://answers.opencv.org/question/90070/findessentialmat-or-decomposeessentialmat-do-not-work-correctly/
+
+#     # x1_norm = cv2.undistortPoints(np.expand_dims(x1, axis=1), cameraMatrix=K, distCoeffs=None) 
+#     # x2_norm = cv2.undistortPoints(np.expand_dims(x2, axis=1), cameraMatrix=K, distCoeffs=None)
+
+#     x1 = utils_misc.de_homo_np((np.linalg.inv(K) @ (utils_misc.homo_np(x1).T)).T)
+#     print(x1, x1.shape)
+#     x2 = utils_misc.de_homo_np((np.linalg.inv(K) @ (utils_misc.homo_np(x2).T)).T)
+#     E_8point, _ = cv2.findFundamentalMat(x1, x2, method=cv2.RANSAC) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+#     # print(F_8point)
+#     # E_8point = K.T @ F_8point @ K
+#     U,S,V = np.linalg.svd(E_8point)
+#     print(S)
+#     E = U @ np.diag([1., 1., 0.]) @ V
+
+#     # E, mask = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+#     points, R, t, mask = cv2.recoverPose(E, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
+#     # points, R, t, mask = cv2.recoverPose(E, x1, x2, focal=1., pp=(0., 0.))
+
+#     print(t)
+#     print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0])) 
+
+#     # R_cam, t_cam = utils_geo.invert_Rt(R, t)
+#     # print(t_cam)
+
+#     error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:, :3])
+#     error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:, 3:4])
+#     print('Recovered by OpenCV: The rotation error (degree) %.4f, and translation error (degree) %.4f'%(error_R, error_t))
+#     print(np.hstack((R, t)))
+#     return np.hstack((R, t)), (error_R, error_t)

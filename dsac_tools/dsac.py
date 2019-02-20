@@ -16,7 +16,7 @@ class DSAC:
 	Differentiable RANSAC to robustly fit lines.
 	'''
 
-	def __init__(self, hyps, inlier_thresh, inlier_beta, inlier_alpha, loss_function):
+	def __init__(self, hyps, inlier_thresh, inlier_beta, inlier_alpha, K, loss_function):
 		'''
 		Constructor.
 
@@ -32,6 +32,7 @@ class DSAC:
 		self.inlier_beta = inlier_beta
 		self.inlier_alpha = inlier_alpha
 		self.loss_function = loss_function
+		self.K = K
 
 	def __sample_hyp(self, X, Y):
 		'''
@@ -48,7 +49,7 @@ class DSAC:
 		X_sample = X[idx, :]
 		Y_sample = Y[idx, :]
 
-		return utils_F._F_from_XY(X_sample, Y_sample), idx
+		return utils_F._E_from_XY(X_sample, Y_sample, self.K), idx
 
 	def __soft_inlier_count(self, H, X, Y):
 		'''
@@ -61,7 +62,7 @@ class DSAC:
 		'''
 
 		# point line distances
-		dists_sampson = utils_F._sampson_dist(H, X, Y, if_homo=False)
+		dists_sampson = utils_F._sampson_dist(utils_F.E_to_F(H, self.K), X, Y, if_homo=False)
 		# print(dists.detach().numpy())
 		# print(np.max(dists.detach().numpy()))
 
@@ -86,7 +87,7 @@ class DSAC:
 		weights -- vector of weights (1 per point)
 		'''
 
-		return utils_F._F_from_XY(X, Y, torch.diag(Ws))
+		return utils_F._E_from_XY(X, Y, self.K, torch.diag(Ws))
 
 	def __call__(self, X, Y, H_gt):
 		'''
@@ -101,6 +102,8 @@ class DSAC:
 			B is the number of images in the batch
 			2 is the number of parameters (intercept, slope)
 		'''
+		
+		print('>>>>>>>>>>>>>>>> Running DSAC... ---------------')
 
 		# working on CPU because of many, small matrices
 		X = X.cpu()
@@ -183,5 +186,7 @@ class DSAC:
 		# avg_top_loss = avg_top_loss + self.est_losses[b]
 
 		# return avg_exp_loss / batch_size, avg_top_loss / batch_size
+
+		print('<<<<<<<<<<<<<<<< DONE Running DSAC. ---------------')
 
 		return N_scores / (N_counts+1e-10)

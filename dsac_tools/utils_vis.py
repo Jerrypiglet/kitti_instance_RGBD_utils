@@ -79,13 +79,13 @@ def draw_corr_widths(im1, im2, x1, x2, linewidth, title='', rescale=True):
     plt.title(title, {'fontsize':40})
     plt.show()
 
-def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader, visualize=True):
+def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader, visualize=True, title_appendix=''):
     x1_homo = np.matmul(kitti_two_frame_loader.K, np.matmul(Rt, utils_misc.homo_np(X_rect.T).T)).T
     x1 = x1_homo[:, 0:2]/x1_homo[:, 2:3]
     if visualize:
         plt.figure(figsize=(30, 8))
         plt.imshow(im_rgb)
-        val_inds = scatter_xy(x1, x1_homo[:, 2], kitti_two_frame_loader.im_shape, 'Reprojection to cam 2 with rectified X and camera', new_figure=False)
+        val_inds = scatter_xy(x1, x1_homo[:, 2], kitti_two_frame_loader.im_shape, 'Reprojection to cam 2 with rectified X and camera_'+title_appendix, new_figure=False)
     else:
         val_inds = utils_misc.within(x1[:, 0], x1[:, 1], kitti_two_frame_loader.im_shape[1], kitti_two_frame_loader.im_shape[0])
     return val_inds
