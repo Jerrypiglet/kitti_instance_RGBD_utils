@@ -3,9 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import glob
 import torch
+from path import Path
 
 import pykitti  # install using pip install pykitti
-from kitti_tools.kitti_raw_loader import *
+# from kitti_tools.kitti_raw_loader import read_calib_file, transform_from_rot_trans
 import dsac_tools.utils_misc as utils_misc
 import dsac_tools.utils_vis as utils_vis
 import dsac_tools.utils_geo as utils_geo
@@ -13,27 +14,30 @@ import dsac_tools.utils_geo as utils_geo
 class KittiLoader(object):
     def __init__(self, KITTI_ROOT_PATH):
         self.KITTI_ROOT_PATH = KITTI_ROOT_PATH
-        self.KITTI_PATH = KITTI_ROOT_PATH + '/raw'
+        self.KITTI_PATH = KITTI_ROOT_PATH + '/raw' if 'raw' not in self.KITTI_ROOT_PATH else self.KITTI_ROOT_PATH
 
 
-    def set_drive(self, date, seq):
-        self.date_name = date
-        self.seq_name = seq
+    def set_drive(self, date, drive, drive_path=None):
+        # self.date_name = date
+        # self.seq_name = seq
 
-        # tracklet_path = KITTI_PATH+'/%s/%s/tracklet_labels.xml'%(date_name, date_name+seq_name)
-        self.fdir_path = self.KITTI_PATH+'/%s/%s/'%(self.date_name, self.date_name+self.seq_name)
-        # if os.path.exists(tracklet_path):
-        #     print('======Tracklet Exists:', tracklet_path)
-        # else:
-        #     print('======Tracklet NOT Exists:', tracklet_path)
+        # # tracklet_path = KITTI_PATH+'/%s/%s/tracklet_labels.xml'%(date_name, date_name+seq_name)
+        # self.fdir_path = self.KITTI_PATH+'/%s/%s/'%(self.date_name, self.date_name+self.seq_name)
+        # # if os.path.exists(tracklet_path):
+        # #     print('======Tracklet Exists:', tracklet_path)
+        # # else:
+        # #     print('======Tracklet NOT Exists:', tracklet_path)
             
-        ## Raw Data directory information
-        path = self.fdir_path.rstrip('/')
-        basedir = path.rsplit('/',2)[0]
-        date = path.split('/')[-2]
-        drive = path.split('/')[-1].split('_')[-2]
-
-        self.dataset = pykitti.raw(basedir, date, drive)
+        # ## Raw Data directory information
+        # path = self.fdir_path.rstrip('/')
+        # basedir = path.rsplit('/',2)[0]
+        # date = path.split('/')[-2]
+        # drive = path.split('/')[-1].split('_')[-2]
+        if drive_path is None:
+            self.drive_path = self.KITTI_PATH+'/%s/%s_drive_%s_sync'%(date, date, drive)
+        else:
+            self.drive_path = drive_path
+        self.dataset = pykitti.raw(self.KITTI_PATH, date, drive)
         # tracklet_rects, tracklet_types, tracklet_ids, tracklet_Rs, tracklet_ts = load_tracklets_for_frames(len(list(dataset.velo)),\
         #                '{}/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(basedir,date, date, drive)) # (3, 3) (3,)
         self.dataset_gray = list(self.dataset.gray)
@@ -51,18 +55,19 @@ class KittiLoader(object):
         self.im_shape = [self.dataset_gray[0][0].size[1], self.dataset_gray[0][0].size[0]]
         self.N_frames = len(list(self.dataset.velo))
 
-        print('KITTI track loaded at %s.'%self.fdir_path)
+        # print('KITTI track loaded at %s.'%self.fdir_path)
 
     def load_cam_poses(self):
-        oxts_path = self.fdir_path + 'oxts/data/*.txt'
+        oxts_path = self.drive_path + '/oxts/data/*.txt'
         oxts = sorted(glob.glob(oxts_path))
 
-        scene_data = {'cid': '', 'dir': self.fdir_path, 'speed': [], 'frame_id': [], 'pose':[], 'pose_matrix':[], 'rel_path': ''}
+        c = '02'
+        scene_data = {'cid': c, 'dir': self.drive_path, 'speed': [], 'frame_id': [], 'imu_pose_matrix':[], 'rel_path': Path(self.drive_path).name + '_' + c}
         scale = None
         origin = None
-        imu2velo_dict = read_calib_file(self.fdir_path+'../calib_imu_to_velo.txt')
-        velo2cam_dict = read_calib_file(self.fdir_path+'../calib_velo_to_cam.txt')
-        cam2cam_dict = read_calib_file(self.fdir_path+'../calib_cam_to_cam.txt')
+        imu2velo_dict = read_calib_file(self.drive_path+'/../calib_imu_to_velo.txt')
+        velo2cam_dict = read_calib_file(self.drive_path+'/../calib_velo_to_cam.txt')
+        cam2cam_dict = read_calib_file(self.drive_path+'/../calib_cam_to_cam.txt')
 
         velo2cam_mat = transform_from_rot_trans(velo2cam_dict['R'], velo2cam_dict['T'])
         imu2velo_mat = transform_from_rot_trans(imu2velo_dict['R'], imu2velo_dict['T'])
@@ -80,30 +85,29 @@ class KittiLoader(object):
             if scale is None:
                 scale = np.cos(lat * np.pi / 180.)
 
-            pose_matrix = pose_from_oxts_packet(metadata[:6], scale)
-            if origin is None:
-                origin = pose_matrix
+            imu_pose_matrix = pose_from_oxts_packet(metadata[:6], scale)
+            # if origin is None:
+            #     origin = pose_matrix
 
-            odo_pose = self.imu2cam @ np.linalg.inv(origin) @ pose_matrix @ np.linalg.inv(self.imu2cam)
-            # odo_pose = np.linalg.inv(origin) @ pose_matrix
+            # odo_pose = self.imu2cam @ np.linalg.inv(origin) @ pose_matrix @ np.linalg.inv(self.imu2cam)
+            # # odo_pose = np.linalg.inv(origin) @ pose_matrix
 
-            odo_pose_Rt = odo_pose[:3]
-            R21 = odo_pose_Rt[:, :3]
-            t21 = odo_pose_Rt[:, 3:4]
-            # R12 = R21.T
-            # t12 = -np.matmul(R12, t21)
+            # odo_pose_Rt = odo_pose[:3]
+            # R21 = odo_pose_Rt[:, :3]
+            # t21 = odo_pose_Rt[:, 3:4]
+            # # R12 = R21.T
+            # # t12 = -np.matmul(R12, t21)
 
-            delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(np.hstack((R21, t21)))))
-            R12 = delta_Rtij[:, :3]
-            t12 = delta_Rtij[:, 3:4]
+            # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(np.hstack((R21, t21)))))
+            # R12 = delta_Rtij[:, :3]
+            # t12 = delta_Rtij[:, 3:4]
 
-            Rt12 = np.hstack((R12, t12))
-            scene_data['pose'].append(Rt12)
-            scene_data['pose_matrix'].append(pose_matrix)
+            # Rt12 = np.hstack((R12, t12))
+            # scene_data['pose'].append(Rt12)
+            scene_data['imu_pose_matrix'].append(imu_pose_matrix)
 
         self.scene_data = scene_data
-        # print('Scene pose loaded. First two poses:')
-        # print(scene_data['pose'][:2])
+        return scene_data
 
     def show_demo(self):
         velo_reproj_list = []
@@ -140,8 +144,8 @@ class KittiLoader(object):
                     plt.show()
 
     def get_left_right_gt(self):
-        print(self.dataset.calib.P_rect_20)
-        print(self.dataset.calib.P_rect_30)
+        # print(self.dataset.calib.P_rect_20)
+        # print(self.dataset.calib.P_rect_30)
         self.K = self.dataset.calib.P_rect_20[:3, :3]
         self.K_th = torch.from_numpy(self.K)
         self.Ml_gt = np.matmul(np.linalg.inv(self.K), self.dataset.calib.P_rect_20)
@@ -151,18 +155,17 @@ class KittiLoader(object):
         tr_gt = self.Mr_gt[:, 3:4]
         Rl_gt = self.Ml_gt[:, :3]
         Rr_gt = self.Mr_gt[:, :3]
-        print('GT camera for left/right.')
-        print(Rl_gt)
-        print(Rr_gt)
-        print(tl_gt)
-        print(tr_gt)
-
+        # print('GT camera for left/right.')
+        # print(Rl_gt)
+        # print(Rr_gt)
+        # print(tl_gt)
+        # print(tr_gt)
 
         self.Rtl_gt = np.vstack((np.hstack((Rl_gt, tl_gt)), np.array([0., 0., 0., 1.], dtype=np.float64)))
         self.delta_Rtlr_gt = np.matmul(np.hstack((Rr_gt, tr_gt)), np.linalg.inv(self.Rtl_gt))
         self.delta_Rlr_gt = self.delta_Rtlr_gt[:, :3]
         self.delta_tlr_gt = self.delta_Rtlr_gt[:, 3:4]
-        print(self.delta_Rlr_gt, self.delta_tlr_gt)
+        # print(self.delta_Rlr_gt, self.delta_tlr_gt)
         tlr_gt_x = utils_misc._skew_symmetric(torch.from_numpy(self.delta_tlr_gt).float())
         self.Elr_gt_th = torch.matmul(tlr_gt_x, torch.eye(3)).to(torch.float64)
         self.Flr_gt_th = torch.matmul(torch.matmul(torch.inverse(self.K_th).t(), self.Elr_gt_th), torch.inverse(self.K_th))
@@ -219,23 +222,24 @@ class KittiLoader(object):
             self.val_idxes_list.append(val_idxes)
             self.X_rect_list.append(X_rect)
         print('Finished rectifying all frames.')
+        return self.val_idxes_list, self.X_rect_list
 
     def get_ij(self, i, j, visualize=False):
         """ Return frame i and j with point cloud from i, and relative camera pose [R|t] """
-        Rt0 = self.scene_data['pose'][0] # Identity, or = utils_misc.identity_Rt()
-        Rti = self.scene_data['pose'][i]
-        Rtj = self.scene_data['pose'][j]
+        # Rt0 = self.scene_data['pose'][0] # Identity, or = utils_misc.identity_Rt()
+        # Rti = self.scene_data['pose'][i]
+        # Rtj = self.scene_data['pose'][j]
 
         # print('Rti', Rti)
         # print('Rti', Rtj)
 
         X_rect_i = self.X_rect_list[i]
         # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(Rti)) @ utils_misc.Rt_pad(Rtj))
-        odo_pose = self.imu2cam @ np.linalg.inv(self.scene_data['pose_matrix'][i]) @ self.scene_data['pose_matrix'][j] @ np.linalg.inv(self.imu2cam) # camera motion
+        odo_pose = self.imu2cam @ np.linalg.inv(self.scene_data['imu_pose_matrix'][i]) @ self.scene_data['imu_pose_matrix'][j] @ np.linalg.inv(self.imu2cam) # camera motion
         delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
 
 
-        val_inds_i = utils_vis.reproj_and_scatter(Rt0, X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize, title_appendix='frame %d (left)'%i)
+        val_inds_i = utils_vis.reproj_and_scatter(utils_misc.identity_Rt(), X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize, title_appendix='frame %d (left)'%i)
         val_inds_j = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[j][0], self, visualize=visualize, title_appendix='frame %d (left)'%j)
 
         X_rect_j = self.X_rect_list[j]
@@ -275,3 +279,82 @@ class KittiLoader(object):
         delta_Rtij_inv = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(delta_Rtij))) # camera motion
 
         return X_rect_i, X_rect_i_vis, delta_Rtij, delta_Rtij_inv, self.dataset_rgb[i][0], self.dataset_rgb[i][1]
+
+
+def pose_from_oxts_packet(metadata, scale):
+
+    lat, lon, alt, roll, pitch, yaw = metadata
+    """Helper method to compute a SE(3) pose matrix from an OXTS packet.
+    Taken from https://github.com/utiasSTARS/pykitti
+    """
+
+    er = 6378137.  # earth radius (approx.) in meters
+    # Use a Mercator projection to get the translation vector
+    ty = lat * np.pi * er / 180.
+
+    tx = scale * lon * np.pi * er / 180.
+    # ty = scale * er * \
+    #     np.log(np.tan((90. + lat) * np.pi / 360.))
+    tz = alt
+    t = np.array([tx, ty, tz]).reshape(-1,1)
+
+    # Use the Euler angles to get the rotation matrix
+    Rx = rotx(roll)
+    Ry = roty(pitch)
+    Rz = rotz(yaw)
+    R = Rz.dot(Ry.dot(Rx))
+    return transform_from_rot_trans(R, t)
+
+
+def read_calib_file(path):
+    # taken from https://github.com/hunse/kitti
+    float_chars = set("0123456789.e+- ")
+    data = {}
+    with open(path, 'r') as f:
+        for line in f.readlines():
+            key, value = line.split(':', 1)
+            value = value.strip()
+            data[key] = value
+            if float_chars.issuperset(value):
+                # try to cast to float array
+                try:
+                    data[key] = np.array(list(map(float, value.split(' '))))
+                except ValueError:
+                    # casting error: data[key] already eq. value, so pass
+                    pass
+
+    return data
+
+
+def transform_from_rot_trans(R, t):
+    """Transforation matrix from rotation matrix and translation vector."""
+    R = R.reshape(3, 3)
+    t = t.reshape(3, 1)
+    return np.vstack((np.hstack([R, t]), [0, 0, 0, 1]))
+
+
+def rotx(t):
+    """Rotation about the x-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[1,  0,  0],
+                     [0,  c, -s],
+                     [0,  s,  c]])
+
+
+def roty(t):
+    """Rotation about the y-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[c,  0,  s],
+                     [0,  1,  0],
+                     [-s, 0,  c]])
+
+
+def rotz(t):
+    """Rotation about the z-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[c, -s,  0],
+                     [s,  c,  0],
+                     [0,  0,  1]])
