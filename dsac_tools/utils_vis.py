@@ -18,13 +18,14 @@ def drawlines(img1,img2,lines,pts1,pts2):
         img2 = cv2.circle(img2,tuple(pt2),2,color,2)
     return img1,img2
 
-def scatter_xy(xy, c, im_shape, title='', new_figure=True):
+def scatter_xy(xy, c, im_shape, title='', new_figure=True, s=2, set_lim=True):
     if new_figure:
         plt.figure(figsize=(30, 8))
-    plt.scatter(xy[:, 0], xy[:, 1], s=2, c=c, cmap='rainbow')
+    plt.scatter(xy[:, 0], xy[:, 1], s=s, c=c, cmap='rainbow')
     plt.colorbar()
-    plt.xlim(0, im_shape[1]-1)
-    plt.ylim(im_shape[0]-1, 0)
+    if set_lim:
+        plt.xlim(0, im_shape[1]-1)
+        plt.ylim(im_shape[0]-1, 0)
     plt.title(title)
     plt.show()
     val_inds = utils_misc.within(xy[:, 0], xy[:, 1], im_shape[1], im_shape[0])

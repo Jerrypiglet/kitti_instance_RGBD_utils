@@ -7,85 +7,9 @@ from tqdm import tqdm
 import scipy.misc
 from collections import Counter
 from kitti_tools.utils_kitti import *
-
-# def rotx(t):
-#     """Rotation about the x-axis."""
-#     c = np.cos(t)
-#     s = np.sin(t)
-#     return np.array([[1,  0,  0],
-#                      [0,  c, -s],
-#                      [0,  s,  c]])
-
-
-# def roty(t):
-#     """Rotation about the y-axis."""
-#     c = np.cos(t)
-#     s = np.sin(t)
-#     return np.array([[c,  0,  s],
-#                      [0,  1,  0],
-#                      [-s, 0,  c]])
-
-
-# def rotz(t):
-#     """Rotation about the z-axis."""
-#     c = np.cos(t)
-#     s = np.sin(t)
-#     return np.array([[c, -s,  0],
-#                      [s,  c,  0],
-#                      [0,  0,  1]])
-
-
-# def pose_from_oxts_packet(metadata, scale):
-
-#     lat, lon, alt, roll, pitch, yaw = metadata
-#     """Helper method to compute a SE(3) pose matrix from an OXTS packet.
-#     Taken from https://github.com/utiasSTARS/pykitti
-#     """
-
-#     er = 6378137.  # earth radius (approx.) in meters
-#     # Use a Mercator projection to get the translation vector
-#     ty = lat * np.pi * er / 180.
-
-#     tx = scale * lon * np.pi * er / 180.
-#     # ty = scale * er * \
-#     #     np.log(np.tan((90. + lat) * np.pi / 360.))
-#     tz = alt
-#     t = np.array([tx, ty, tz]).reshape(-1,1)
-
-#     # Use the Euler angles to get the rotation matrix
-#     Rx = rotx(roll)
-#     Ry = roty(pitch)
-#     Rz = rotz(yaw)
-#     R = Rz.dot(Ry.dot(Rx))
-#     return transform_from_rot_trans(R, t)
-
-
-# def read_calib_file(path):
-#     # taken from https://github.com/hunse/kitti
-#     float_chars = set("0123456789.e+- ")
-#     data = {}
-#     with open(path, 'r') as f:
-#         for line in f.readlines():
-#             key, value = line.split(':', 1)
-#             value = value.strip()
-#             data[key] = value
-#             if float_chars.issuperset(value):
-#                 # try to cast to float array
-#                 try:
-#                     data[key] = np.array(list(map(float, value.split(' '))))
-#                 except ValueError:
-#                     # casting error: data[key] already eq. value, so pass
-#                     pass
-
-#     return data
-
-
-# def transform_from_rot_trans(R, t):
-#     """Transforation matrix from rotation matrix and translation vector."""
-#     R = R.reshape(3, 3)
-#     t = t.reshape(3, 1)
-#     return np.vstack((np.hstack([R, t]), [0, 0, 0, 1]))
-
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 class KittiRawLoader(object):
     def __init__(self,
@@ -94,16 +18,16 @@ class KittiRawLoader(object):
                  img_height=128,
                  img_width=416,
                  min_speed=2,
-                 get_depth=False,
+                 get_X=False,
                  get_pose=False):
                  # depth_size_ratio=1):
         dir_path = Path(__file__).realpath().dirname()
         # test_scene_file = dir_path/'test_scenes.txt'
 
-        # self.from_speed = static_frames_file is None
-        # if static_frames_file is not None:
-        #     static_frames_file = Path(static_frames_file)
-        #     self.collect_static_frames(static_frames_file)
+        self.from_speed = static_frames_file is None
+        if static_frames_file is not None:
+            static_frames_file = Path(static_frames_file)
+            self.collect_static_frames(static_frames_file)
 
         # with open(test_scene_file, 'r') as f:
         #     test_scenes = f.readlines()
@@ -116,25 +40,26 @@ class KittiRawLoader(object):
         self.cam_ids = ['02', '03']
         self.date_list = ['2011_09_26', '2011_09_28', '2011_09_29', '2011_09_30', '2011_10_03']
         self.min_speed = min_speed
-        self.get_depth = get_depth
+        self.get_X = get_X
         self.get_pose = get_pose
         # self.depth_size_ratio = depth_size_ratio
         self.collect_train_folders()
 
         # self.kitti_two_frame_loader = KittiLoader(self.dataset_dir)
 
-    # def collect_static_frames(self, static_frames_file):
-    #     with open(static_frames_file, 'r') as f:
-    #         frames = f.readlines()
-    #     self.static_frames = {}
-    #     for fr in frames:
-    #         if fr == '\n':
-    #             continue
-    #         date, drive, frame_id = fr.split(' ')
-    #         curr_fid = '%.10d' % (np.int(frame_id[:-1]))
-    #         if drive not in self.static_frames.keys():
-    #             self.static_frames[drive] = []
-    #         self.static_frames[drive].append(curr_fid)
+    def collect_static_frames(self, static_frames_file):
+        with open(static_frames_file, 'r') as f:
+            frames = f.readlines()
+        self.static_frames = {}
+        for fr in frames:
+            if fr == '\n':
+                continue
+            date, drive, frame_id = fr.split(' ')
+            curr_fid = '%.10d' % (np.int(frame_id[:-1]))
+            if drive not in self.static_frames.keys():
+                self.static_frames[drive] = []
+            self.static_frames[drive].append(curr_fid)
+        logging.info('Static frames collected from %s.'%static_frames_file)
 
     def collect_train_folders(self):
         self.scenes = []
@@ -192,7 +117,7 @@ class KittiRawLoader(object):
     #     return train_scenes
 
     def collect_scenes(self, drive_path):
-        print('Collecting ', drive_path)
+        logging.info('Collecting ' + drive_path)
         path = drive_path.rstrip('/')
         basedir = path.rsplit('/',2)[0]
         date = path.split('/')[-2]
@@ -200,16 +125,21 @@ class KittiRawLoader(object):
 
         kitti_two_frame_loader = KittiLoader(self.dataset_dir)
         kitti_two_frame_loader.set_drive(date, drive, drive_path)
+        if kitti_two_frame_loader.N_frames == 0:
+            return []
         kitti_two_frame_loader.get_left_right_gt()
         scene_data = kitti_two_frame_loader.load_cam_poses()
         # self.kitti_two_frame_loader.show_demo()
-        val_idxes_list, X_rect_list = kitti_two_frame_loader.rectify_all(visualize=False)
-
-        assert len(scene_data['imu_pose_matrix']) == len(val_idxes_list) == len(X_rect_list), \
-        '[Error] Unequal lengths of imu_pose_matrix:%d, val_idxes_list:%d, X_rect_list:%d!'%(len(scene_data['imu_pose_matrix']), len(val_idxes_list), len(X_rect_list))
-
-        scene_data['val_idxes'] = val_idxes_list
-        scene_data['X_rect'] = X_rect_list
+        assert len(scene_data['imu_pose_matrix']) == kitti_two_frame_loader.N_frames, \
+            '[Error] Unequal lengths of imu_pose_matrix:%d, N_frames:%d!'%(len(scene_data['imu_pose_matrix']), kitti_two_frame_loader.N_frames)
+        if self.get_X:
+            val_idxes_list, X_rect_list = kitti_two_frame_loader.rectify_all(visualize=False)
+            scene_data['val_idxes'] = val_idxes_list
+            if len(val_idxes_list) == len(X_rect_list):
+                scene_data['X_rect'] = X_rect_list
+            else:
+                scene_data['X_rect']
+                logging.error('Unequal lengths of imu_pose_matrix:%d, val_idxes_list:%d, X_rect_list:%d! Not saving X_rect for %s-%s'%(len(scene_data['imu_pose_matrix']), len(val_idxes_list), len(X_rect_list), date, drive))
         scene_data['intrinsics'] = kitti_two_frame_loader.K
         scene_data['img_l'] = [im[0] for im in kitti_two_frame_loader.dataset_rgb]
 
@@ -247,15 +177,16 @@ class KittiRawLoader(object):
 
             # if self.get_depth:
             #     sample['depth'] = self.generate_depth_map(scene_data, i)
-            sample['X_rect_vis'] = scene_data['X_rect'][i][:, scene_data['val_idxes'][i]]
+            if self.get_X:
+                sample['X_rect_vis'] = scene_data['X_rect'][i][:, scene_data['val_idxes'][i]]
             if self.get_pose:
                 sample['imu_pose_matrix'] = scene_data['imu_pose_matrix'][i]
             return sample
 
         drive = str(scene_data['dir'].name)
         for (i,frame_id) in enumerate(scene_data['frame_id']):
-            # if (drive not in self.static_frames.keys()) or (frame_id not in self.static_frames[drive]):
-            yield construct_sample(scene_data, i, frame_id)
+            if (drive not in self.static_frames.keys()) or (frame_id not in self.static_frames[drive]):
+                yield construct_sample(scene_data, i, frame_id)
 
     # def get_P_rect(self, scene_data, zoom_x, zoom_y):
     #     calib_file = scene_data['dir'].parent/'calib_cam_to_cam.txt'
@@ -354,9 +285,11 @@ class KittiRawLoader(object):
     def dump_drive(self, args, drive_path, scene_list=None):
         if scene_list is None:
             scene_list = self.collect_scenes(drive_path)
+            if not scene_list:
+                return
         for scene_data in scene_list:
             dump_dir = Path(args.dump_root)/scene_data['rel_path']
-            print('Dumping to ', dump_dir)
+            logging.info('Dumping to ' + dump_dir)
             # dump_dir = Path(args.dump_root)
             dump_dir.mkdir_p()
             intrinsics = scene_data['intrinsics']

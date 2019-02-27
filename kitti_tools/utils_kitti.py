@@ -42,7 +42,9 @@ class KittiLoader(object):
         #                '{}/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(basedir,date, date, drive)) # (3, 3) (3,)
         self.dataset_gray = list(self.dataset.gray)
         self.dataset_rgb = list(self.dataset.rgb) 
-
+        self.N_frames = len(self.dataset_rgb)
+        if self.N_frames == 0:
+            return
         ## From Rui
         # Understanding calibs: https://github.com/utiasSTARS/pykitti/blob/0e5fd7fefa7cd10bbdfb5bd131bb58481d481116/pykitti/raw.py#L150
         # cam = 'leftRGB'
@@ -52,8 +54,7 @@ class KittiLoader(object):
         P_rect = self.P_rects['leftRGB'] # P_rect_0[0-3]: 3x4 projection matrix after rectification; the reprojection matrix in MV3D
         self.velo2cam = self.dataset.calib.T_cam0_velo_unrect
         self.P_velo2im = np.dot(np.dot(P_rect, self.R_cam2rect), self.velo2cam) # 4*3
-        self.im_shape = [self.dataset_gray[0][0].size[1], self.dataset_gray[0][0].size[0]]
-        self.N_frames = len(list(self.dataset.velo))
+        self.im_shape = [self.dataset_gray[0][0].size[1], self.dataset_gray[0][0].size[0]] if self.N_frames!= 0 else [-1, -1]
 
         # print('KITTI track loaded at %s.'%self.fdir_path)
 
@@ -72,6 +73,7 @@ class KittiLoader(object):
         velo2cam_mat = transform_from_rot_trans(velo2cam_dict['R'], velo2cam_dict['T'])
         imu2velo_mat = transform_from_rot_trans(imu2velo_dict['R'], imu2velo_dict['T'])
         cam_2rect_mat = transform_from_rot_trans(cam2cam_dict['R_rect_00'], np.zeros(3))
+        print(velo2cam_dict)
 
         self.imu2cam = self.Rtl_gt @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
         # imu2cam = self.Rtl_gt @ self.R_cam2rect @ self.velo2cam @ imu2velo_mat
