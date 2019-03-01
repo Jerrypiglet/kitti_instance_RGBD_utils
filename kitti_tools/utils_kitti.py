@@ -73,7 +73,6 @@ class KittiLoader(object):
         velo2cam_mat = transform_from_rot_trans(velo2cam_dict['R'], velo2cam_dict['T'])
         imu2velo_mat = transform_from_rot_trans(imu2velo_dict['R'], imu2velo_dict['T'])
         cam_2rect_mat = transform_from_rot_trans(cam2cam_dict['R_rect_00'], np.zeros(3))
-        print(velo2cam_dict)
 
         self.imu2cam = self.Rtl_gt @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
         # imu2cam = self.Rtl_gt @ self.R_cam2rect @ self.velo2cam @ imu2velo_mat
