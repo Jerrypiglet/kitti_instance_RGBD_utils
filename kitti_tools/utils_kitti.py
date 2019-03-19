@@ -240,7 +240,7 @@ class KittiLoader(object):
         # print(i, '\n', self.scene_data['imu_pose_matrix'][i])
         # print(j, '\n', self.scene_data['imu_pose_matrix'][j])
         # print(self.imu2cam)
-        # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
+        delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
         # print(odo_pose)
 
 
