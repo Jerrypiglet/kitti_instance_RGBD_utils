@@ -6,7 +6,14 @@ import random
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+import cv2
+from utils_good import *
 
+# import os,sys
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ROOT_DIR = os.path.dirname(BASE_DIR)
+# sys.path.append(ROOT_DIR)
+# from kitti_tools.utils_opencv import *
 
 def load_as_float(path):
     return np.array(imread(path)).astype(np.float32)
@@ -42,6 +49,7 @@ class SequenceLoader(data.Dataset):
         self.get_X = get_X
         self.get_pose = get_pose
         self.get_sift = get_sift
+        self.bf = cv2.BFMatcher()
         self.crawl_folders(self.sequence_length)
 
     def crawl_folders(self, sequence_length):
@@ -56,12 +64,13 @@ class SequenceLoader(data.Dataset):
             # intrinsics = np.genfromtxt(scene/'cam.txt').astype(np.float32).reshape((3, 3))
             intrinsics = load_as_array(scene/'cam.npy').astype(np.float32).reshape((3, 3))
             # imu_pose_matrixs = np.genfromtxt(scene/'imu_pose_matrixs.txt').astype(np.float64).reshape(-1, 4, 4)
-            imu_pose_matrixs = load_as_array(scene/'imu_pose_matrixs.npy').astype(np.float64).reshape(-1, 4, 4)
+            # imu_pose_matrixs = load_as_array(scene/'imu_pose_matrixs.npy').astype(np.float64).reshape(-1, 4, 4)
+            imu_pose_matrixs = loadh5(scene/'imu_pose_matrixs.h5')['pose'].astype(np.float64).reshape(-1, 4, 4)
             self.imu2cam = load_as_array(scene/'imu2cam.npy')
             imgs = sorted(scene.files('*.jpg'))
             full_length = len(imgs)
-            X_files = sorted(scene.files('*_X.npy'))
-            sift_files = sorted(scene.files('*_sift.npy'))
+            X_files = sorted(scene.files('*_X.h5'))
+            sift_files = sorted(scene.files('*_sift.h5'))
 
             if full_length <= max_idx:
                 logging.warning('Number of images in scene %s smaller than the seq length required!'%scene)
@@ -121,12 +130,31 @@ class SequenceLoader(data.Dataset):
         scene_name = sample['scene_name']
         frame_ids = sample['frame_ids']
 
-        Xs = [load_as_array(X_file) for X_file in sample['X_files']] if self.get_X else [-1]*self.sequence_length
+        # Xs = [load_as_array(X_file) for X_file in sample['X_files']] if self.get_X else [-1]*self.sequence_length
+        Xs = [loadh5(X_file)['X_rect_vis'] for X_file in sample['X_files']] if self.get_X else [-1]*self.sequence_length
+
         if self.get_sift:
-            sift_arrays = [load_as_array(sift_file) for sift_file in sample['sift_files']]
-            # else [None]*self.sequence_length
-            sift_kps = [sift_array[:, :2] for sift_array in sift_arrays]
-            sift_deses = [sift_array[:, 2:] for sift_array in sift_arrays]
+            # sift_arrays = [load_as_array(sift_file) for sift_file in sample['sift_files']]
+            # sift_kps = [sift_array[:, :2] for sift_array in sift_arrays]
+            # sift_deses = [sift_array[:, 2:] for sift_array in sift_arrays]
+            sift_arrays = [loadh5(sift_file) for sift_file in sample['sift_files']]
+            sift_kps = [sift_array['sift_kp'] for sift_array in sift_arrays]
+            sift_deses = [sift_array['sift_des'] for sift_array in sift_arrays]
+            
+
+            ## Match on the fly: too slow (~4fps)
+            # if self.sequence_length==2:
+            #     # BFMatcher with default params
+            #     bf = cv2.BFMatcher(normType=cv2.NORM_L2)
+            #     matches = bf.knnMatch(np.asarray(sift_deses[0], np.float32), np.asarray(sift_deses[1], np.float32), k=2)
+            #     # Apply ratio test
+            #     good = []
+            #     for m,n in matches:
+            #         if m.distance < 0.75*n.distance:
+            #             good.append([m])
+            #     x1 = x1_all[[mat.queryIdx for mat in good], :]
+            #     x2 = x2_all[[mat.trainIdx for mat in good], :]
+            #     print('--', x1.shape, x2.shape)
         else:
             sift_kps = [-1]*self.sequence_length
             sift_deses = [-1]*self.sequence_length

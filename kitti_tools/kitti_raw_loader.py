@@ -12,24 +12,27 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
 
-from kitti_tools.utils_kitti import *
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
 import cv2
+
+from kitti_tools.utils_kitti import *
+from utils_good import *
 
 class KittiRawLoader(object):
     def __init__(self,
                  dataset_dir,
                  test_scene_file=None,
                  static_frames_file=None,
-                 img_height=128,
-                 img_width=416,
+                 # img_height=128,
+                 # img_width=416,
                  min_speed=2,
                  get_X=False,
                  get_pose=False,
-                 get_sift=False):
+                 get_sift=False,
+                 sift_num=2000,
+                 BF_matcher=True):
                  # depth_size_ratio=1):
         dir_path = Path(__file__).realpath().dirname()
         # test_scene_file = dir_path/'test_scenes.txt'
@@ -45,8 +48,8 @@ class KittiRawLoader(object):
         # self.test_scenes = []
 
         self.dataset_dir = Path(dataset_dir)
-        self.img_height = img_height
-        self.img_width = img_width
+        # self.img_height = img_height
+        # self.img_width = img_width
         self.cam_ids = ['02', '03']
         self.date_list = ['2011_09_26', '2011_09_28', '2011_09_29', '2011_09_30', '2011_10_03']
         self.min_speed = min_speed
@@ -54,7 +57,14 @@ class KittiRawLoader(object):
         self.get_pose = get_pose
         self.get_sift = get_sift
         if self.get_sift:
-            self.sift = cv2.xfeatures2d.SIFT_create(nfeatures=2000, contrastThreshold=1e-5)
+            self.sift = cv2.xfeatures2d.SIFT_create(nfeatures=sift_num, contrastThreshold=1e-5)
+            self.bf = cv2.BFMatcher(normType=cv2.NORM_L2)
+            FLANN_INDEX_KDTREE = 0
+            index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+            search_params = dict(checks = 50)
+            self.flann = cv2.FlannBasedMatcher(index_params, search_params)
+            self.sift_matcher = self.bf if BF_matcher else self.flann
+
         # self.depth_size_ratio = depth_size_ratio
         self.collect_train_folders()
 
@@ -150,9 +160,12 @@ class KittiRawLoader(object):
             return sample
 
         drive = str(scene_data['dir'].name)
+        all_imgs = []
         for (i,frame_id) in enumerate(scene_data['frame_id']):
             if (drive not in self.static_frames.keys()) or (frame_id not in self.static_frames[drive]):
-                yield construct_sample(scene_data, i, frame_id)
+                # yield construct_sample(scene_data, i, frame_id)
+                all_imgs.append(construct_sample(scene_data, i, frame_id))
+        return all_imgs
 
     def dump_drive(self, args, drive_path, scene_list=None):
         if scene_list is None:
@@ -166,32 +179,58 @@ class KittiRawLoader(object):
             dump_dir.mkdir_p()
 
             intrinsics = scene_data['intrinsics']
-            dump_cam_file = dump_dir/'cam.txt'
+            dump_cam_file = dump_dir/'cam'
             # np.savetxt(dump_cam_file, intrinsics)
-            np.save(dump_cam_file.replace('.txt', '.npy'), intrinsics)
+            np.save(dump_cam_file+'.npy', intrinsics)
             
-            dump_imu2cam_file = dump_dir/'imu2cam.npy'
+            dump_imu2cam_file = dump_dir/'imu2cam'
             np.save(dump_imu2cam_file, scene_data['imu2cam'])
 
-            poses_file = dump_dir/'imu_pose_matrixs.txt'
+            poses_file = dump_dir/'imu_pose_matrixs'
             poses = []
 
-            for sample in self.get_scene_imgs(scene_data):
+            scene_samples = self.get_scene_imgs(scene_data)
+            for ii, sample in enumerate(scene_samples):
                 img, frame_nb = sample["img"], sample["id"]
                 dump_img_file = dump_dir/'{}.jpg'.format(frame_nb)
                 scipy.misc.imsave(dump_img_file, img)
                 if "imu_pose_matrix" in sample.keys():
                     poses.append(sample["imu_pose_matrix"].reshape(-1).tolist())
+                    if len(poses) != 0:
+                        # np.savetxt(poses_file, np.array(poses).reshape(-1, 16), fmt='%.20e')
+                        # np.save(poses_file+'.h5', np.array(poses).reshape(-1, 16))
+                        saveh5({"pose": np.array(poses).reshape(-1, 16)}, poses_file+'.h5')
                 if "X_rect_vis" in sample.keys():
-                    dump_X_file = dump_dir/'{}_X.npy'.format(frame_nb)
-                    np.save(dump_X_file, sample["X_rect_vis"])
+                    dump_X_file = dump_dir/'{}_X'.format(frame_nb)
+                    # np.save(dump_X_file, sample["X_rect_vis"])
+                    saveh5({"X_rect_vis": sample["X_rect_vis"]}, dump_X_file+'.h5')
                 if "sift_kp" in sample.keys():
-                    dump_sift_file = dump_dir/'{}_sift.npy'.format(frame_nb)
-                    np.save(dump_sift_file, np.hstack((sample['sift_kp'], sample['sift_des'])))
-            if len(poses) != 0:
-                # np.savetxt(poses_file, np.array(poses).reshape(-1, 16), fmt='%.20e')
-                np.save(poses_file.replace('.txt', '.npy'), np.array(poses).reshape(-1, 16))
+                    dump_sift_file = dump_dir/'{}_sift'.format(frame_nb)
+                    # np.save(dump_sift_file, np.hstack((sample['sift_kp'], sample['sift_des'])))
+                    saveh5({'sift_kp': sample['sift_kp'], 'sift_des': sample['sift_des']}, dump_sift_file+'.h5')
+
+            if self.get_sift:
+                delta_ij = 1
+                for ii in range(len(scene_samples)-delta_ij):
+                    jj = ii + delta_ij
+                    all_ij, good_ij = self.get_sift_match_idx_pair(scene_samples[ii]['sift_des'], scene_samples[jj]['sift_des'])
+                    dump_ij_idx_dict = {'all_ij': all_ij, 'good_ij': good_ij}
+                    dump_ij_idx_file = dump_dir/'ij_idx_{}-{}.h5'.format(frame_nb, ii, jj)
+                    saveh5(dump_ij_idx_dict, dump_ij_idx_file)
 
             if len(dump_dir.files('*.jpg')) < 3:
                 dump_dir.rmtree()
 
+    def get_sift_match_idx_pair(self, des1, des2):
+        matches = self.sift_matcher.knnMatch(des1, des2, k=2) # another option is https://github.com/MagicLeapResearch/SuperPointPretrainedNetwork/blob/master/demo_superpoint.py#L309
+        # store all the good matches as per Lowe's ratio test.
+        good = []
+        all_m = []
+        for m,n in matches:
+            all_m.append(m)
+            if m.distance < 0.7*n.distance:
+                good.append(m)
+
+        good_ij = [[mat.queryIdx for mat in good], [mat.trainIdx for mat in good]]
+        all_ij = [[mat.queryIdx for mat in all_m], [mat.trainIdx for mat in all_m]]
+        return np.asarray(all_ij).T, np.asarray(good_ij).T

@@ -32,17 +32,32 @@ def SIFT_det(img, img_rgb, visualize=False):
 
     return x_all, kp, des
 
-def KNN_match(des1, des2, x1_all, x2_all, kp1, kp2, img1_rgb, img2_rgb, visualize=False):
-    FLANN_INDEX_KDTREE = 0
-    index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
-    search_params = dict(checks = 50)
+def KNN_match(des1, des2, x1_all, x2_all, kp1, kp2, img1_rgb, img2_rgb, visualize=False, if_BF=False):
+    # https://opencv-python-tutroals.readthedocs.io/en/latest/py_tutorials/py_feature2d/py_matcher/py_matcher.html
+    # des2 = np.vstack((des2, np.zeros((1, 128), dtype=des2.dtype)))
+    # print(des1.shape, des2.shape)
+    if if_BF: # Use brute force matching
+        bf = cv2.BFMatcher(normType=cv2.NORM_L2)
+        matches = bf.knnMatch(des1,des2, k=2)
+        # # Apply ratio test
+        # good = []
+        # for m,n in matches:
+        #     if m.distance < 0.7*n.distance:
+        #         good.append(m)
+    else:
+        FLANN_INDEX_KDTREE = 0
+        index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+        search_params = dict(checks = 50)
 
-    flann = cv2.FlannBasedMatcher(index_params, search_params)
+        flann = cv2.FlannBasedMatcher(index_params, search_params)
 
-    matches = flann.knnMatch(des1, des2, k=2) # another option is https://github.com/MagicLeapResearch/SuperPointPretrainedNetwork/blob/master/demo_superpoint.py#L309
+        matches = flann.knnMatch(des1, des2, k=2) # another option is https://github.com/MagicLeapResearch/SuperPointPretrainedNetwork/blob/master/demo_superpoint.py#L309
+    # print(matches)
     # store all the good matches as per Lowe's ratio test.
     good = []
+    all_m = []
     for m,n in matches:
+        all_m.append(m)
         if m.distance < 0.7*n.distance:
             good.append(m)
 

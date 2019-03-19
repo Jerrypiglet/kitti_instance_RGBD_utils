@@ -30,9 +30,9 @@ from pebble import ProcessPool
 
 parser = argparse.ArgumentParser(description='Foo')
 parser.add_argument("--dataset_dir", type=str, default="/data/KITTI/raw_meta/", help="path to dataset")   
-parser.add_argument("--num_threads", type=int, default=12, help="number of thread to load data")
-parser.add_argument("--img_height", type=int, default=128, help="number of thread to load data")
-parser.add_argument("--img_width", type=int, default=416, help="number of thread to load data")
+parser.add_argument("--num_threads", type=int, default=1, help="number of thread to load data")
+# parser.add_argument("--img_height", type=int, default=128, help="number of thread to load data")
+# parser.add_argument("--img_width", type=int, default=416, help="number of thread to load data")
 parser.add_argument("--static_frames_file", type=str, default="ref/static_frames.txt", help="static data file path")
 parser.add_argument("--test_scene_file", type=str, default="ref/test_scenes_eigen.txt", help="test data file path")
 parser.add_argument('--dump', action='store_true', default=False)
@@ -59,15 +59,15 @@ from kitti_raw_loader import KittiRawLoader
 data_loader = KittiRawLoader(args.dataset_dir,
                              static_frames_file=args.static_frames_file,
                              test_scene_file=args.test_scene_file,
-                             img_height=args.img_height,
-                             img_width=args.img_width,
+                             # img_height=args.img_height,
+                             # img_width=args.img_width,
                              get_X=args.with_X,
                              get_pose=args.with_pose,
                              get_sift=args.with_sift)
 
 # drive_path_test = data_loader.get_drive_path('2011_09_26', '0104')
 # data_loader.scenes = [drive_path_test]
-data_loader.scenes =data_loader.scenes[:10]
+# data_loader.scenes =data_loader.scenes[:2]
 
 n_scenes = len(data_loader.scenes)
 print('Found {} potential scenes'.format(n_scenes))
