@@ -17,7 +17,7 @@ def SIFT_det(img, img_rgb, visualize=False):
     # Initiate SIFT detector
     # pip install opencv-python==3.4.2.16, opencv-contrib-python==3.4.2.16
     # https://www.pyimagesearch.com/2015/07/16/where-did-sift-and-surf-go-in-opencv-3/
-    sift = cv2.xfeatures2d.SIFT_create()
+    sift = cv2.xfeatures2d.SIFT_create(nfeatures=2000, contrastThreshold=1e-5)
 
     # find the keypoints and descriptors with SIFT
     kp, des = sift.detectAndCompute(img,None)
@@ -116,8 +116,8 @@ def show_epipolar_rui(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
 
 def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt, kitti_two_frame_loader, visualize=False):
     import random
-    random.seed(10)
-    N_points = 20
+    # random.seed(10)
+    N_points = 50
     random_idx = random.sample(range(x1.shape[0]), N_points)
     # random_idx = mask_index
     x1_sample = x1[random_idx, :]

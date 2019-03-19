@@ -3,6 +3,9 @@ import numpy as np
 from imageio import imread
 from path import Path
 import random
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 
 def load_as_float(path):
@@ -11,7 +14,7 @@ def load_as_float(path):
 def load_as_array(path):
     return np.load(path)
 
-class SequenceFolder(data.Dataset):
+class SequenceLoader(data.Dataset):
     """A sequence data loader where the files are arranged in this way:
         root/scene_1/0000000.jpg
         root/scene_1/0000001.jpg
@@ -23,39 +26,80 @@ class SequenceFolder(data.Dataset):
         transform functions must take in a list a images and a numpy array (usually intrinsics matrix)
     """
 
-    def __init__(self, root, seed=None, train=True, sequence_length=2, transform=None, target_transform=None):
+    def __init__(self, root, seed=None, train=True, sequence_length=2, delta_ij=1, 
+                 get_X=False,
+                 get_pose=False,
+                 get_sift=False, 
+                 transform=None, target_transform=None):
         np.random.seed(seed)
         random.seed(seed)
         self.root = Path(root)
         scene_list_path = self.root/'train.txt' if train else self.root/'val.txt'
         self.scenes = [self.root/folder[:-1] for folder in open(scene_list_path)]
         self.transform = transform
-        self.crawl_folders(sequence_length)
+        self.sequence_length = sequence_length
+        self.delta_ij = delta_ij
+        self.get_X = get_X
+        self.get_pose = get_pose
+        self.get_sift = get_sift
+        self.crawl_folders(self.sequence_length)
 
     def crawl_folders(self, sequence_length):
         sequence_set = []
         # demi_length = (sequence_length-1)//2
-        demi_length = sequence_length-1
+        # demi_length = sequence_length-1
         # shifts = list(range(-demi_length, demi_length + 1))
         # shifts.pop(demi_length)
+        max_idx = (sequence_length-1)*self.delta_ij
+
         for scene in self.scenes:
-            intrinsics = np.genfromtxt(scene/'cam.txt').astype(np.float32).reshape((3, 3))
-            imu_pose_matrixs = np.genfromtxt(scene/'imu_pose_matrixs.txt').astype(np.float64).reshape(-1, 4, 4)
+            # intrinsics = np.genfromtxt(scene/'cam.txt').astype(np.float32).reshape((3, 3))
+            intrinsics = load_as_array(scene/'cam.npy').astype(np.float32).reshape((3, 3))
+            # imu_pose_matrixs = np.genfromtxt(scene/'imu_pose_matrixs.txt').astype(np.float64).reshape(-1, 4, 4)
+            imu_pose_matrixs = load_as_array(scene/'imu_pose_matrixs.npy').astype(np.float64).reshape(-1, 4, 4)
+            self.imu2cam = load_as_array(scene/'imu2cam.npy')
             imgs = sorted(scene.files('*.jpg'))
-            X_files = sorted(scene.files('*.npy'))
-            if len(imgs) < sequence_length:
+            full_length = len(imgs)
+            X_files = sorted(scene.files('*_X.npy'))
+            sift_files = sorted(scene.files('*_sift.npy'))
+
+            if full_length <= max_idx:
+                logging.warning('Number of images in scene %s smaller than the seq length required!'%scene)
+                print(full_length, [idx*self.delta_ij for idx in range(sequence_length)])
                 continue
+            if not(imu_pose_matrixs.shape[0]==len(imgs)==len(X_files)==len(sift_files)):
+                logging.error('Unequal number of files in scene %s! imu_pose_matrixs.shape[0] %d, len(imgs) %d, len(X_files) %d, len(sift_files)%d'%\
+                    (scene, imu_pose_matrixs.shape[0], len(imgs), len(X_files), len(sift_files)))
+
             # for i in range(demi_length, len(imgs)-demi_length):
-            for i in range(0, len(imgs)-demi_length):
-                sample = {'intrinsics': intrinsics, 'imu_pose_matrixs': [imu_pose_matrixs[i]], 'imgs': [imgs[i]], 'Xs': [load_as_array(X_files[i])], 'scene_name': scene.name, 'frame_ids': [i]}
-                # for j in shifts:
-                for j in range(1, demi_length+1):
+            for i in range(full_length - max_idx):
+                sample = {'intrinsics': intrinsics, 'imgs': [imgs[i]], 'scene_name': scene.name, 'frame_ids': [i]}
+                if self.get_pose:
+                    sample['scene_poses'] = [np.eye(3, dtype=np.float32)]
+                    sample['imu_pose_matrixs'] = [imu_pose_matrixs[i]]
+                if self.get_X:
+                    sample['X_files'] = [X_files[i]]
+                if self.get_sift:
+                    sample.update({'sift_files': [sift_files[i]], 'scene_name': scene.name})
+
+                for k in range(1, sequence_length):
+                    j = k   * self.delta_ij
                     sample['imgs'].append(imgs[i+j])
-                    sample['imu_pose_matrixs'].append(imu_pose_matrixs[i+j])
-                    sample['Xs'].append(load_as_array(X_files[i])) # [3, N]
+                    if self.get_pose:
+                        sample['imu_pose_matrixs'].append(imu_pose_matrixs[i+j])
+                        sample['scene_poses'].append(self.imu2cam @ np.linalg.inv(imu_pose_matrixs[i+j]) @ imu_pose_matrixs[i] @ np.linalg.inv(self.imu2cam))
+                        # if i==166:
+                        #     print(i, scene, '\n', imu_pose_matrixs[i])
+                        #     print(i+j, scene, '\n', imu_pose_matrixs[i+j])
+                        #     print(self.imu2cam)
+                        #     test = self.imu2cam @ np.linalg.inv(imu_pose_matrixs[i]) @ imu_pose_matrixs[i+j] @ np.linalg.inv(self.imu2cam)
+                        #     print(test)
+                    if self.get_X:
+                        sample['X_files'].append(X_files[i+j]) # [3, N]
+                    if self.get_sift:
+                        sample['sift_files'].append(sift_files[i+j]) # [N, 256+2]
                     sample['frame_ids'].append(i+j)
                 sequence_set.append(sample)
-                # print(sample)
         random.shuffle(sequence_set)
         self.samples = sequence_set
 
@@ -72,13 +116,27 @@ class SequenceFolder(data.Dataset):
         #     ref_imgs = imgs[1:]
         # else:
 
-        intrinsics = np.copy(sample['intrinsics'])
-        imu_pose_matrixs = sample['imu_pose_matrixs']
+        intrinsics = sample['intrinsics']
+        # imu_pose_matrixs = sample['imu_pose_matrixs']
         scene_name = sample['scene_name']
         frame_ids = sample['frame_ids']
+
+        Xs = [load_as_array(X_file) for X_file in sample['X_files']] if self.get_X else [-1]*self.sequence_length
+        if self.get_sift:
+            sift_arrays = [load_as_array(sift_file) for sift_file in sample['sift_files']]
+            # else [None]*self.sequence_length
+            sift_kps = [sift_array[:, :2] for sift_array in sift_arrays]
+            sift_deses = [sift_array[:, 2:] for sift_array in sift_arrays]
+        else:
+            sift_kps = [-1]*self.sequence_length
+            sift_deses = [-1]*self.sequence_length
+        scene_poses = sample['scene_poses'] if self.get_pose else [-1]*self.sequence_length
+
+        # print(Xs[0].shape)
+
         # print(frame_ids)
         # return imgs, intrinsics, imu_pose_matrixs, scene_name, frame_ids
-        return imgs, intrinsics, imu_pose_matrixs, scene_name, frame_ids
+        return imgs, intrinsics, scene_name, frame_ids, Xs, sift_kps, sift_deses, scene_poses
 
     def __len__(self):
         return len(self.samples)

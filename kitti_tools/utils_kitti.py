@@ -237,7 +237,11 @@ class KittiLoader(object):
         X_rect_i = self.X_rect_list[i]
         # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(Rti)) @ utils_misc.Rt_pad(Rtj))
         odo_pose = self.imu2cam @ np.linalg.inv(self.scene_data['imu_pose_matrix'][i]) @ self.scene_data['imu_pose_matrix'][j] @ np.linalg.inv(self.imu2cam) # camera motion
-        delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
+        # print(i, '\n', self.scene_data['imu_pose_matrix'][i])
+        # print(j, '\n', self.scene_data['imu_pose_matrix'][j])
+        # print(self.imu2cam)
+        # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
+        # print(odo_pose)
 
 
         val_inds_i = utils_vis.reproj_and_scatter(utils_misc.identity_Rt(), X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize, title_appendix='frame %d (left)'%i)
