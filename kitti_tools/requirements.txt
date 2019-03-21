@@ -3,4 +3,5 @@ scipy
 path.py
 tqdm
 torch
-
+h5py
+coloredlogs

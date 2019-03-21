@@ -13,11 +13,11 @@ def PIL_to_gray(im_PIL):
     img1 = cv2.cvtColor(img1_rgb, cv2.COLOR_BGR2GRAY)
     return img1
 
-def SIFT_det(img, img_rgb, visualize=False):
+def SIFT_det(img, img_rgb, visualize=False, nfeatures=2000):
     # Initiate SIFT detector
     # pip install opencv-python==3.4.2.16, opencv-contrib-python==3.4.2.16
     # https://www.pyimagesearch.com/2015/07/16/where-did-sift-and-surf-go-in-opencv-3/
-    sift = cv2.xfeatures2d.SIFT_create(nfeatures=2000, contrastThreshold=1e-5)
+    sift = cv2.xfeatures2d.SIFT_create(nfeatures=nfeatures, contrastThreshold=1e-5)
 
     # find the keypoints and descriptors with SIFT
     kp, des = sift.detectAndCompute(img,None)
@@ -84,13 +84,16 @@ def KNN_match(des1, des2, x1_all, x2_all, kp1, kp2, img1_rgb, img2_rgb, visualiz
         plt.title('Good points, #%d'%x1.shape[0])
         plt.show()
 
-        plt.figure(figsize=(30, 8))
+        plt.figure(figsize=(30, 8)) 
         plt.imshow(img2_rgb)
         plt.scatter(x2[:, 0], x2[:, 1], s=10, marker='o', c='y')
         plt.title('Good points, #%d'%x1.shape[0])
         plt.show()
 
-    return x1, x2
+    good_ij = [[mat.queryIdx for mat in good], [mat.trainIdx for mat in good]]
+    all_ij = [[mat.queryIdx for mat in all_m], [mat.trainIdx for mat in all_m]]
+
+    return x1, x2, np.asarray(all_ij).T.copy(), np.asarray(good_ij).T.copy()
 
 def show_epipolar_opencv(x1, x2, img1_rgb, img2_rgb, F_gt):
     lines2 = cv2.computeCorrespondEpilines(x1.reshape(-1,1,2).astype(int), 1,F_gt)
@@ -186,14 +189,15 @@ def recover_camera_opencv(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, thr
     # E_recover = E_5point
     # if five_point:
     points, R, t, mask = cv2.recoverPose(E_recover, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
+    # print(R, t)
     # else:
         # points, R, t, mask = cv2.recoverPose(E_recover, x1, x2)
     print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0]))
 
     # R_cam, t_cam = utils_geo.invert_Rt(R, t)
 
-    error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:, :3])
-    error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:, 3:4])
+    error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:3, :3])
+    error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:3, 3:4])
     print('Recovered by OpenCV %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
     print(np.hstack((R, t)))
 

@@ -10,6 +10,7 @@ import scipy.misc
 import os
 import cv2
 from glob import glob
+import time
 
 from path import Path
 from tqdm import tqdm
@@ -23,18 +24,21 @@ from torch.utils.data import Dataset
 # from config import get_config
 # config, unparsed = get_config()
 
-# from IPython.core.display import display, HTML
-# display(HTML("<style>.container { width:90% !important; }</style>"))
 import argparse
 from pebble import ProcessPool
+import multiprocessing as mp
+ratio_CPU = 0.5
+# default_number_of_process = int(ratio_CPU * mp.cpu_count())
+default_number_of_process = 1 # to prevent congestion; SIFT and matrix operations in recfity points already takes advantage of multi-cores
+import time
 
 parser = argparse.ArgumentParser(description='Foo')
 parser.add_argument("--dataset_dir", type=str, default="/data/KITTI/raw_meta/", help="path to dataset")   
-parser.add_argument("--num_threads", type=int, default=1, help="number of thread to load data")
-# parser.add_argument("--img_height", type=int, default=128, help="number of thread to load data")
-# parser.add_argument("--img_width", type=int, default=416, help="number of thread to load data")
-parser.add_argument("--static_frames_file", type=str, default="ref/static_frames.txt", help="static data file path")
-parser.add_argument("--test_scene_file", type=str, default="ref/test_scenes_eigen.txt", help="test data file path")
+parser.add_argument("--num_threads", type=int, default=default_number_of_process, help="number of thread to load data")
+parser.add_argument("--img_height", type=int, default=375, help="number of thread to load data")
+parser.add_argument("--img_width", type=int, default=1242, help="number of thread to load data")
+parser.add_argument("--static_frames_file", type=str, default=None, help="static data file path")
+parser.add_argument("--test_scene_file", type=str, default=None, help="test data file path")
 parser.add_argument('--dump', action='store_true', default=False)
 parser.add_argument("--with_X", action='store_true', default=False,
                     help="If available (e.g. with KITTI), will store visable rectified lidar points ground truth along with images, for validation")
@@ -59,16 +63,16 @@ from kitti_raw_loader import KittiRawLoader
 data_loader = KittiRawLoader(args.dataset_dir,
                              static_frames_file=args.static_frames_file,
                              test_scene_file=args.test_scene_file,
-                             # img_height=args.img_height,
-                             # img_width=args.img_width,
+                             img_height=args.img_height,
+                             img_width=args.img_width,
+                             min_speed=0.5,
                              get_X=args.with_X,
                              get_pose=args.with_pose,
                              get_sift=args.with_sift)
 
-# drive_path_test = data_loader.get_drive_path('2011_09_26', '0104')
+# drive_path_test = data_loader.get_drive_path('2011_09_28', '0016')
 # data_loader.scenes = [drive_path_test]
-# data_loader.scenes =data_loader.scenes[:2]
-
+# data_loader.scenes = data_loader.scenes[:10] # List of Paths
 n_scenes = len(data_loader.scenes)
 print('Found {} potential scenes'.format(n_scenes))
 
@@ -76,14 +80,17 @@ args_dump_root = Path(args.dump_root)
 args_dump_root.mkdir_p()
 
 print('== Retrieving frames')
+seconds = time.time()
 def dump_scenes_from_drive(args, drive_path):
-    scene_list = data_loader.collect_scenes(drive_path)
-    data_loader.dump_drive(args, drive_path, scene_list)
-    return scene_list
+    # scene = data_loader.collect_scene_from_drive(drive_path)
+    data_loader.dump_drive(args, drive_path, scene_data=None)
+    # return scene_list
 
 if args.num_threads == 1:
     for drive_path in tqdm (data_loader.scenes):
-        scene_list = dump_scenes_from_drive(args, drive_path)
+        dump_scenes_from_drive(args, drive_path)
+        # time.sleep(10)
+
 else:
     with ProcessPool(max_workers=args.num_threads) as pool:
         tasks = pool.map(dump_scenes_from_drive, [args]*n_scenes, data_loader.scenes)
@@ -93,10 +100,12 @@ else:
         except KeyboardInterrupt as e:
             tasks.cancel()
             raise e
+print("Finished dump scenes. ", time.time() - seconds)
+
     
 print('== Generating train val lists')
 np.random.seed(8964)
-val_ratio = 0.0
+val_ratio = 0.2
 # to avoid data snooping, we will make two cameras of the same scene to fall in the same set, train or val
 subdirs = args_dump_root.dirs() # e.g. Path('./data/kitti_dump/2011_09_30_drive_0034_sync_02')
 canonic_prefixes = set([subdir.basename()[:-2] for subdir in subdirs]) # e.g. '2011_09_28_drive_0039_sync_'

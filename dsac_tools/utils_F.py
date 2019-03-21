@@ -413,11 +413,12 @@ def ncr(n, r):
     denom = reduce(op.mul, range(1, r+1), 1)
     return int(numer / denom)
 
-def _E_F_from_Rt(R, t, K):
+def _E_F_from_Rt(R_th, t_th, K_th, tensor_input=False):
     """ Better use F instead of E """
-    K_th = torch.from_numpy(K).to(torch.float64)
-    R_th = torch.from_numpy(R).to(torch.float64)
-    t_th = torch.from_numpy(t).to(torch.float64)
+    if not tensor_input:
+        K_th = torch.from_numpy(K_th).to(torch.float64)
+        R_th = torch.from_numpy(R_th).to(torch.float64)
+        t_th = torch.from_numpy(t_th).to(torch.float64)
     t_gt_x = utils_misc._skew_symmetric(t_th)
 #     print(t_gt_x, R_th)
     E_gt_th = torch.matmul(t_gt_x, R_th)

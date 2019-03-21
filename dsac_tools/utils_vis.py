@@ -42,7 +42,7 @@ def get_cmap(n, name='hsv'):
     RGB color; the keyword argument name must be a standard mpl colormap name.'''
     return plt.cm.get_cmap(name, n)
 
-def draw_corr(im1, im2, x1, x2, linewidth):
+def draw_corr(im1, im2, x1, x2, linewidth=2):
     # im1 = img1_rgb
     # im2 = img2_rgb
     # x1 = x1_sample
@@ -53,7 +53,7 @@ def draw_corr(im1, im2, x1, x2, linewidth):
     x2_copy[:, 0] = x2_copy[:, 0] + im_shape[1]
     im12 = np.hstack((im1, im2))
 
-    plt.figure(figsize=(30, 4))
+    plt.figure(figsize=(60, 8))
     plt.imshow(im12)
     plt.plot(np.vstack((x1[:, 0], x2_copy[:, 0])), np.vstack((x1[:, 1], x2_copy[:, 1])), marker='o', linewidth=linewidth)
     plt.show()

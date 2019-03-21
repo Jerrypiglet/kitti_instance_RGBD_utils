@@ -38,8 +38,6 @@ class KittiLoader(object):
         else:
             self.drive_path = drive_path
         self.dataset = pykitti.raw(self.KITTI_PATH, date, drive)
-        # tracklet_rects, tracklet_types, tracklet_ids, tracklet_Rs, tracklet_ts = load_tracklets_for_frames(len(list(dataset.velo)),\
-        #                '{}/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(basedir,date, date, drive)) # (3, 3) (3,)
         self.dataset_gray = list(self.dataset.gray)
         self.dataset_rgb = list(self.dataset.rgb) 
         self.N_frames = len(self.dataset_rgb)
@@ -74,7 +72,7 @@ class KittiLoader(object):
         imu2velo_mat = transform_from_rot_trans(imu2velo_dict['R'], imu2velo_dict['T'])
         cam_2rect_mat = transform_from_rot_trans(cam2cam_dict['R_rect_00'], np.zeros(3))
 
-        self.imu2cam = self.Rtl_gt @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
+        self.imu2cam = self.Rtl_gt.copy() @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
         # imu2cam = self.Rtl_gt @ self.R_cam2rect @ self.velo2cam @ imu2velo_mat
         for n, f in enumerate(oxts):
             metadata = np.genfromtxt(f)
@@ -105,7 +103,7 @@ class KittiLoader(object):
 
             # Rt12 = np.hstack((R12, t12))
             # scene_data['pose'].append(Rt12)
-            scene_data['imu_pose_matrix'].append(imu_pose_matrix)
+            scene_data['imu_pose_matrix'].append(imu_pose_matrix.copy())
 
         self.scene_data = scene_data
         return scene_data
@@ -213,9 +211,11 @@ class KittiLoader(object):
 
     def rectify_all(self, visualize=False):
         # for each frame, get the visible points on front view with identity left camera, as well as indexes of points on both left/right images
+        print('Rectifying...')
         self.val_idxes_list = []
         self.X_rect_list = []
         for i in range(self.N_frames):
+            print(i, self.N_frames)
             velo = list(self.dataset.velo)[i] # [N, 4]
             velo = velo[:, :3]
             velo_reproj = utils_misc.homo_np(velo)
@@ -330,6 +330,39 @@ def read_calib_file(path):
 
     return data
 
+def rectify(velo_reproj, calibs):
+        val_inds_list = []
+
+        X_homo = np.dot(np.dot(calibs['cam_2rect'], calibs['velo2cam']), velo_reproj.T) # 4*N
+        X_homo_rect = np.matmul(calibs['Rtl_gt'], X_homo)
+        X_rect = X_homo_rect[:3, :] / X_homo_rect[3:4, :]
+
+        front_mask = X_rect[-1, :]>0
+        X_rect = X_rect[:, front_mask]
+        X_homo_rect = X_homo_rect[:, front_mask]
+
+        # Plot with recfitied X and R, t
+        x1_homo = np.matmul(calibs['K'], np.matmul(np.hstack((np.eye(3), np.zeros((3, 1)))), X_homo_rect)).T
+        x1 = x1_homo[:, 0:2]/x1_homo[:, 2:3]
+        val_inds = utils_misc.within(x1[:, 0], x1[:, 1], calibs['im_shape'][1], calibs['im_shape'][0])
+        val_inds_list.append(val_inds)
+
+        x2_homo = np.matmul(calibs['K'], np.matmul(np.hstack((calibs['delta_Rlr_gt'], calibs['delta_tlr_gt'])), X_homo_rect)).T
+        x2 = x2_homo[:, :2]/x2_homo[:, 2:3]
+        val_inds = utils_misc.within(x1[:, 0], x1[:, 1], calibs['im_shape'][1], calibs['im_shape'][0])
+        val_inds_list.append(val_inds)
+
+        # val_inds_both = val_inds_list[0] & val_inds_list[1]
+        # val_idxes = [idx for idx in range(val_inds_both.shape[0]) if val_inds_both[idx]] # within indexes
+
+        val_idxes = utils_misc.vis_masks_to_inds(val_inds_list[0], val_inds_list[1])
+        return val_idxes, X_rect
+
+def load_velo_scan(velo_filename):
+    # https://github.com/charlesq34/frustum-pointnets/blob/889c277144a33818ddf73c4665753975f9397fc4/kitti/kitti_util.py#L270
+    scan = np.fromfile(velo_filename, dtype=np.float32)
+    scan = scan.reshape((-1, 4))
+    return scan
 
 def transform_from_rot_trans(R, t):
     """Transforation matrix from rotation matrix and translation vector."""
@@ -346,7 +379,6 @@ def rotx(t):
                      [0,  c, -s],
                      [0,  s,  c]])
 
-
 def roty(t):
     """Rotation about the y-axis."""
     c = np.cos(t)
@@ -354,7 +386,6 @@ def roty(t):
     return np.array([[c,  0,  s],
                      [0,  1,  0],
                      [-s, 0,  c]])
-
 
 def rotz(t):
     """Rotation about the z-axis."""
