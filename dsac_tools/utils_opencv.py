@@ -132,6 +132,35 @@ def show_epipolar_rui(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
     plt.ylim(im_shape[0]-1, 0)
     plt.show()
 
+def show_epipolar_normalized(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
+    N_points = x1.shape[0]
+    x1_homo = utils_misc.homo_np(x1)
+    x2_homo = utils_misc.homo_np(x2)
+    right_P = np.matmul(F_gt, x1_homo.T)
+    right_epipolar_x = np.tile(np.array([[-1.], [1.]]), N_points) * im_shape[1]
+    # Using the eqn of line: ax+by+c=0; y = (-c-ax)/b, http://ai.stanford.edu/~mitul/cs223b/draw_epipolar.m
+    right_epipolar_y = (-right_P[2:3, :] - right_P[0:1, :] * right_epipolar_x) / right_P[1:2, :]
+
+    colors = np.random.rand(x2.shape[0])
+    plt.figure(figsize=(30, 8))
+    plt.subplot(121)
+#     plt.imshow(img1_rgb)
+#     plt.scatter(x1[:, 0]*f+W/2., x1[:, 1]*f+H/2., s=50, c=colors, edgecolors='w')
+    plt.scatter(x1[:, 0], x1[:, 1], s=50, c=colors, edgecolors='w')
+    plt.xlim(-im_shape[1], im_shape[1])
+    plt.ylim(im_shape[0], -im_shape[0])
+    plt.gca().set_aspect('equal', adjustable='box')
+    
+    plt.subplot(122)
+#     plt.imshow(img2_rgb)
+    plt.plot(right_epipolar_x, right_epipolar_y)
+    plt.scatter(x2[:, 0], x2[:, 1], s=50, c=colors, edgecolors='w')
+#     plt.axis('equal')
+    plt.xlim(-im_shape[1], im_shape[1])
+    plt.ylim(im_shape[0], -im_shape[0])
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.show()
+
 def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt, kitti_two_frame_loader, visualize=False):
     import random
     # random.seed(10)

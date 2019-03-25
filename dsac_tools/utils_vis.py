@@ -58,7 +58,7 @@ def draw_corr(im1, im2, x1, x2, linewidth=2):
     plt.plot(np.vstack((x1[:, 0], x2_copy[:, 0])), np.vstack((x1[:, 1], x2_copy[:, 1])), marker='o', linewidth=linewidth)
     plt.show()
 
-def draw_corr_widths(im1, im2, x1, x2, linewidth, title='', rescale=True):
+def draw_corr_widths(im1, im2, x1, x2, linewidth, title='', rescale=True, scale=1.):
     # im1 = img1_rgb
     # im2 = img2_rgb
     # x1 = x1_sample
@@ -75,12 +75,12 @@ def draw_corr_widths(im1, im2, x1, x2, linewidth, title='', rescale=True):
         if rescale:
             width = 5 if linewidth[i]<2 else 10
         else:
-            width = linewidth[i]
+            width = linewidth[i]*scale
         plt.plot(np.vstack((x1[i, 0], x2_copy[i, 0])), np.vstack((x1[i, 1], x2_copy[i, 1])), linewidth=width, marker='o', markersize=8)
     plt.title(title, {'fontsize':40})
     plt.show()
 
-def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader=None, visualize=True, title_appendix='', param_list=[]):
+def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader=None, visualize=True, title_appendix='', param_list=[], set_lim=True):
     if kitti_two_frame_loader is None:
         print('Reading from input list of param_list=[K, im_shape].')
         K = param_list[0]
@@ -94,7 +94,7 @@ def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader=None, visualiz
     if visualize:
         plt.figure(figsize=(30, 8))
         plt.imshow(im_rgb)
-        val_inds = scatter_xy(x1, x1_homo[:, 2], im_shape, 'Reprojection to cam 2 with rectified X and camera_'+title_appendix, new_figure=False)
+        val_inds = scatter_xy(x1, x1_homo[:, 2], im_shape, 'Reprojection to cam 2 with rectified X and camera_'+title_appendix, new_figure=False,set_lim=set_lim)
     else:
         val_inds = utils_misc.within(x1[:, 0], x1[:, 1], im_shape[1], im_shape[0])
     return val_inds

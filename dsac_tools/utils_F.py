@@ -165,12 +165,42 @@ def _sampson_dist(F, X, Y, if_homo=False):
     if not if_homo:
         X = utils_misc._homo(X)
         Y = utils_misc._homo(Y)
-    nominator = (torch.diag(torch.matmul(torch.matmul(Y, F), X.t())))**2
-    Fx1 = torch.mm(F, X.t())
-    Fx2 = torch.mm(F, Y.t())
-    denom = Fx1[0]**2 + Fx1[1]**2 + Fx2[0]**2 + Fx2[1]**2
+    if len(X.size())==2:
+        nominator = (torch.diag(Y@F@X.t()))**2
+        Fx1 = torch.mm(F, X.t())
+        Fx2 = torch.mm(F.t(), Y.t())
+        denom = Fx1[0]**2 + Fx1[1]**2 + Fx2[0]**2 + Fx2[1]**2
+    else:
+        nominator = (torch.diagonal(Y@F@X.transpose(1, 2), dim1=1, dim2=2))**2
+        Fx1 = torch.matmul(F, X.transpose(1, 2))
+        Fx2 = torch.matmul(F.transpose(1, 2), Y.transpose(1, 2))
+        denom = Fx1[:, 0]**2 + Fx1[:, 1]**2 + Fx2[:, 0]**2 + Fx2[:, 1]**2
+        # print(nominator.size(), denom.size())
+
     errors = nominator/denom
     return errors
+
+def _sym_epi_dist(F, X, Y, if_homo=False):
+    if not if_homo:
+        X = utils_misc._homo(X)
+        Y = utils_misc._homo(Y)
+    if len(X.size())==2:
+        nominator = (torch.diag(Y@F@X.t()))**2
+        Fx1 = torch.mm(F, X.t())
+        Fx2 = torch.mm(F.t(), Y.t())
+        denom_recp = 1./(Fx1[0]**2 + Fx1[1]**2) + 1./(Fx2[0]**2 + Fx2[1]**2)
+    else:
+        nominator = (torch.diagonal(Y@F@X.transpose(1, 2), dim1=1, dim2=2))**2
+        Fx1 = torch.matmul(F, X.transpose(1, 2))
+        Fx2 = torch.matmul(F.transpose(1, 2), Y.transpose(1, 2))
+        denom_recp = 1./(Fx1[:, 0]**2 + Fx1[:, 1]**2) + 1./(Fx2[:, 0]**2 + Fx2[:, 1]**2)
+        # print(nominator.size(), denom.size())
+
+    errors = nominator*denom_recp
+    return errors
+
+
+
 
 def _F_to_E(F, K):
     E = torch.matmul(torch.matmul(K.t(), F), K)

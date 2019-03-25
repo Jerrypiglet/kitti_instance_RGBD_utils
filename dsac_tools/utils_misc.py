@@ -22,18 +22,24 @@ def _skew_symmetric(v): # v: [3, 1]
     return torch.reshape(M, (3, 3))
 
 def _homo(x):
-    # input: x [N, 2]
-    # output: x_homo [N, 3]
-    N = list(x.size())[0]
-    x_homo = torch.cat((x, torch.ones(N, 1, dtype=x.dtype)), 1)
+    # input: x [N, 2] or [batch_size, N, 2]
+    # output: x_homo [N, 3]  or [batch_size, N, 3]
+    assert len(x.size()) in [2, 3]
+    if len(x.size())==2:
+        x_homo = torch.cat((x, torch.ones(x.size()[0], 1, dtype=x.dtype)), 1)
+    elif len(x.size())==3:
+        x_homo = torch.cat((x, torch.ones(x.size()[0], x.size()[1], 1, dtype=x.dtype)), 2)
     return x_homo
 
 def _de_homo(x_homo):
-    # input: x_homo [N, 3]
-    # output: x [N, 2]
-    N = list(x_homo.size())[0]
+    # input: x_homo [N, 3] or [batch_size, N, 3]
+    # output: x [N, 2] or [batch_size, N, 2]
+    assert len(x_homo.size()) in [2, 3]
     epi = 1e-10
-    x = torch.cat((x_homo[:, 0:1]/(x_homo[:, 2:3]+epi), x_homo[:, 1:2]/(x_homo[:, 2:3]+epi)), 1)
+    if len(x_homo.size())==2:
+        x = x_homo[:, 0:1]/(x_homo[:, 2:3]+epi)
+    else:
+        x = x_homo[:, :, :2]/(x_homo[:, :, 2:3]+epi)
     return x
 
 def homo_np(x):

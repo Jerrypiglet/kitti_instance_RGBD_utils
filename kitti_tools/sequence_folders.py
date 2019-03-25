@@ -45,9 +45,12 @@ def crop_or_pad_choice(in_num_points, out_num_points, shuffle=False):
 def load_as_float(path):
     return np.array(imread(path)).astype(np.float32)
 
-def load_as_array(path):
-    return np.load(path)
-
+def load_as_array(path, dtype=None):
+    array = np.load(path)
+    if dtype is not None:
+        return array.astype(dtype)
+    else:
+        return array
 class SequenceLoader(data.Dataset):
     """A sequence data loader where the files are arranged in this way:
         root/scene_1/0000000.jpg
@@ -142,8 +145,91 @@ class SequenceLoader(data.Dataset):
 
         # for sample in self.samples:
         #     print(sample['ids'  ])
-
     def __getitem__(self, index):
+        input = {}
+        sample = self.samples[index]
+        imgs = [load_as_float(img) for img in sample['imgs']]
+        input.update({'imgs': imgs})
+        input.update({'K': sample['intrinsics'], 'scene_name': sample['scene_name'], 'frame_ids': sample['frame_ids']})
+
+        # if self.transform is not None:
+        #     imgs, intrinsics = self.transform([tgt_img] + ref_imgs, np.copy(sample['intrinsics']))
+        #     tgt_img = imgs[0]
+        #     ref_imgs = imgs[1:]
+        # else:
+
+        ids = sample['ids']
+        get_flags = {}
+        if self.sequence_length==2:
+            dump_ij_idx_file_name = sample['scene']/'ij_idx_{}-{}'.format(ids[0], ids[1])
+            # print(frame_ids, ids, dump_ij_idx_file_name)
+            if self.load_npy:
+                dump_ij_idx_files = [dump_ij_idx_file_name+'_all_ij.npy', dump_ij_idx_file_name+'_good_ij.npy']
+            else:
+                dump_ij_idx_file = dump_ij_idx_file_name+'.h5'
+
+        if self.get_X:
+            if self.load_npy:
+                Xs = [load_as_array(X_file, np.float32) for X_file in sample['X_files']] if self.get_X else [-1]*self.sequence_length
+            else:
+                Xs = [loadh5(X_file)['X_rect_vis'] for X_file in sample['X_files']] if self.get_X else [-1]*self.sequence_length
+            # get_flags['Xs'] = self.get_X
+            input.update({'Xs': Xs})    
+
+        # sift_kps = [-1]*self.sequence_length
+        # sift_deses = [-1]*self.sequence_length
+        # matches_good = [-1]*self.sequence_length
+        # matches_all = [-1]*self.sequence_length
+        if self.get_sift:
+            # get_flags['sifts'] = self.get_sift
+            if self.load_npy:
+                sift_arrays = [load_as_array(sift_file, np.float32) for sift_file in sample['sift_files']]
+                sift_kps = [sift_array[:, :2] for sift_array in sift_arrays] # list of [Ni, 2]
+                sift_deses = [sift_array[:, 2:] for sift_array in sift_arrays] # list of [Ni, 128]
+                # In Good Corr, they construct a batch with the min number of points in the batch: https://github.com/vcg-uvic/learned-correspondence-release/blob/035dda508915ff5e1641e4c5c3de639deb80038a/network.py#L398
+                # In Frustum Pointnet, they sample or pad:
+                # [1] https://github.com/charlesq34/frustum-pointnets/blob/2ffdd345e1fce4775ecb508d207e0ad465bcca80/models/model_util.py#L52
+                # [2] https://github.com/haosulab/frustum_pointnet/blob/635c938f18b9ec1de2de717491fb217df84d2d93/fpointnet/data/datasets/utils.py
+                sift_kps_padded = []
+                sift_deses_padded = []
+                for sift_kp, sift_des in zip(sift_kps, sift_deses):
+                    assert sift_kp.shape[0] == sift_des.shape[0], 'Num of sift kps and num of sift des should agree!'
+                    choice = crop_or_pad_choice(sift_kp.shape[0], 2000, shuffle=True)
+                    sift_kps_padded.append(sift_kp[choice].copy())
+                    sift_deses_padded.append(sift_des[choice].copy())
+
+                input.update({'sift_kps': sift_kps_padded, 'sift_deses': sift_deses_padded})
+
+                if self.sequence_length==2:
+                    ij_idxes = []
+                    for dump_ij_idx_file in dump_ij_idx_files:
+                        if os.path.isfile(dump_ij_idx_file):
+                            ij_idxes.append(load_as_array(dump_ij_idx_file))
+                            get_flags['have_matches'] = True
+                        else:
+                            logging.warning('NOT Find '+dump_ij_idx_file)
+                            get_flags['have_matches'] = False
+                    if get_flags['have_matches']:
+                        matches_all = np.hstack((sift_kps[0][ij_idxes[0][:, 0], :], sift_kps[1][ij_idxes[0][:, 1], :]))
+                        choice = crop_or_pad_choice(matches_all.shape[0], 2000, shuffle=True)
+                        matches_all_padded = matches_all[choice].copy()
+                        matches_good = np.hstack((sift_kps[0][ij_idxes[1][:, 0], :], sift_kps[1][ij_idxes[1][:, 1], :]))
+                        choice = crop_or_pad_choice(matches_good.shape[0], 1311, shuffle=True)
+                        matches_good_padded = matches_good[choice].copy()
+                        input.update({'matches_all': matches_all_padded, 'matches_good': matches_good_padded, 'matches_good_num': matches_good.shape[0]})
+            else:
+                pass
+
+            
+        if self.get_pose:
+            input.update({'scene_poses': sample['scene_poses']})
+
+        input.update({'get_flags': get_flags})
+
+        # return imgs, intrinsics, scene_name, frame_ids, Xs, sift_kps, sift_deses, scene_poses, matches_all, matches_good, get_flags
+        return input
+
+    def __getitem_old__(self, index):
         sample = self.samples[index]
         imgs = [load_as_float(img) for img in sample['imgs']]
 

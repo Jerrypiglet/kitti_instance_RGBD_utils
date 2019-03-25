@@ -1,4 +1,5 @@
 # KITTI data dump and load demo
+This dump(er) and loader deal with images, lidar points and SIFT for each frame, camera pose and SIFT correspondences between frames.
 ## Requirements
 Install by
 > pip install -r requirements.txt
