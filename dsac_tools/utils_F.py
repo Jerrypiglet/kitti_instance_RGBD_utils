@@ -8,6 +8,7 @@ import dsac_tools.utils_vis as utils_vis
 import scipy
 import random
 import operator
+from batch_svd import batch_svd # https://github.com/KinglittleQ/torch-batch-svd.git
 
 def _normalize_XY(X, Y):
     """ The Hartley normalization. Following https://github.com/marktao99/python/blob/da2682f8832483650b85b0be295ae7eaf179fcc5/CVP/samples/sfm.py#L157 
@@ -18,7 +19,8 @@ def _normalize_XY(X, Y):
     X = utils_misc._homo(X)
     mean_1 = torch.mean(X[:, :2], dim=0, keepdim=True)
     S1 = np.sqrt(2) / torch.mean(torch.norm(X[:, :2]-mean_1, 2, dim=1))
-    T1 = torch.tensor([[S1,0,-S1*mean_1[0, 0]],[0,S1,-S1*mean_1[0, 1]],[0,0,1]])
+    # print(mean_1.size(), S1.size())
+    T1 = torch.tensor([[S1,0,-S1*mean_1[0, 0]],[0,S1,-S1*mean_1[0, 1]],[0,0,1]], device=X.device)
     X_normalized = utils_misc._de_homo(torch.mm(T1, X.t()).t()) # ideally zero mean (x, y), and sqrt(2) average norm
 
     # xxx = X_normalized.numpy()
@@ -28,10 +30,41 @@ def _normalize_XY(X, Y):
     Y = utils_misc._homo(Y)
     mean_2 = torch.mean(Y[:, :2], dim=0, keepdim=True)
     S2 = np.sqrt(2) / torch.mean(torch.norm(Y[:, :2]-mean_2, 2, dim=1))
-    T2 = torch.tensor([[S2,0,-S2*mean_2[0, 0]],[0,S2,-S2*mean_2[0, 1]],[0,0,1]])
+    T2 = torch.tensor([[S2,0,-S2*mean_2[0, 0]],[0,S2,-S2*mean_2[0, 1]],[0,0,1]], device=X.device)
     Y_normalized = utils_misc._de_homo(torch.mm(T2, Y.t()).t())
 
     return X_normalized, Y_normalized, T1, T2
+
+def _normalize_XY_batch(X, Y):
+    """ The Hartley normalization. Following https://github.com/marktao99/python/blob/da2682f8832483650b85b0be295ae7eaf179fcc5/CVP/samples/sfm.py#L157 
+    corrected with https://www.mathworks.com/matlabcentral/fileexchange/27541-fundamental-matrix-computation
+    and https://en.wikipedia.org/wiki/Eight-point_algorithm#The_normalized_eight-point_algorithm """
+    # X: [batch_size, N, 2]
+    if X.size()[1] != Y.size()[1]:
+        raise ValueError("Number of points don't match.")
+    X = utils_misc._homo(X)
+    mean_1s = torch.mean(X[:, :, :2], dim=1, keepdim=True)
+    S1s = np.sqrt(2) / torch.mean(torch.norm(X[:, :, :2]-mean_1s, 2, dim=2), dim=1)
+    T1_list = []
+    for S1, mean_1 in zip(S1s, mean_1s):
+        T1_list.append(torch.tensor([[S1,0,-S1*mean_1[0, 0]],[0,S1,-S1*mean_1[0, 1]],[0,0,1]], device=X.device))
+    T1s = torch.stack(T1_list)
+    X_normalized = utils_misc._de_homo(torch.bmm(T1s, X.transpose(1, 2)).transpose(1, 2)) # ideally zero mean (x, y), and sqrt(2) average norm
+
+    # xxx = X_normalized.numpy()
+    # print(np.mean(xxx, axis=0))
+    # print(np.mean(np.linalg.norm(xxx, 2, axis=1)))
+
+    Y = utils_misc._homo(Y)
+    mean_2s = torch.mean(Y[:, :, :2], dim=1, keepdim=True)
+    S2s = np.sqrt(2) / torch.mean(torch.norm(Y[:, :,  :2]-mean_2s, 2, dim=2), dim=1)
+    T2_list = []
+    for S2, mean_2 in zip(S2s, mean_2s):
+        T2_list.append(torch.tensor([[S2,0,-S2*mean_2[0, 0]],[0,S2,-S2*mean_2[0, 1]],[0,0,1]], device=X.device))
+    T2s = torch.stack(T2_list)
+    Y_normalized = utils_misc._de_homo(torch.bmm(T2s, Y.transpose(1, 2)).transpose(1, 2))
+
+    return X_normalized, Y_normalized, T1s, T2s
 
 # def E_from_XY(X, Y):
 #     # X, Y: [N, 2]
@@ -66,45 +99,123 @@ def _normalize_XY(X, Y):
 #     E = _F_to_E(F, K)
 #     return E
 
-def _E_from_XY(X, Y, K, W=None, normalize=True, show_debug=False): # Ref: https://github.com/marktao99/python/blob/master/CVP/samples/sfm.py#L55
+def _E_from_XY(X, Y, K, W=None, if_normzliedK=False, normalize=True, show_debug=False): # Ref: https://github.com/marktao99/python/blob/master/CVP/samples/sfm.py#L55
     """ Normalized Eight Point Algorithom for E: [Manmohan] In practice, one would transform the data points by K^{-1}, then do a Hartley normalization, then estimate the F matrix (which is now E matrix), then set the singular value conditions, then denormalize. Note that it's better to set singular values first, then denormalize.
         X, Y: [N, 2] """
-    X_normalizedK = utils_misc._de_homo(torch.mm(torch.inverse(K), utils_misc._homo(X).t()).t())
-    Y_normalizedK = utils_misc._de_homo(torch.mm(torch.inverse(K), utils_misc._homo(Y).t()).t())
+    if if_normzliedK:
+        X_normalizedK = X
+        Y_normalizedK = Y
+    else:
+        X_normalizedK = utils_misc._de_homo(torch.mm(torch.inverse(K), utils_misc._homo(X).t()).t())
+        Y_normalizedK = utils_misc._de_homo(torch.mm(torch.inverse(K), utils_misc._homo(Y).t()).t())
 
     if normalize:
         X, Y, T1, T2 = _normalize_XY(X_normalizedK, Y_normalizedK)
+    else:
+        X, Y = X_normalizedK, Y_normalizedK
+    # print(T1)
+    # print(T2)
+    # print(X)
 
     xx = torch.cat([X.t(), Y.t()], dim=0)
     XX = torch.stack([
         xx[2, :] * xx[0, :], xx[2, :] * xx[1, :], xx[2, :],
         xx[3, :] * xx[0, :], xx[3, :] * xx[1, :], xx[3, :],
         xx[0, :], xx[1, :], torch.ones_like(xx[0, :])
-    ], dim=0).t()
+    ], dim=0).t() # [N, 9]
+    # print(XX.size())
     if W is not None:
-        XX = torch.mm(W, XX)
-    U, D, V = torch.svd(XX, some=False)
+        XX = torch.mm(W, XX) # [N, 9]
+    # print(XX[:2])
+    U, D, V = torch.svd(XX, some=True)
     if show_debug:
         print('[info.Debug @_E_from_XY] Singualr values of XX:\n', D.numpy())
 
-    U_np, D_np, V_np = np.linalg.svd(XX.numpy())
+    # U_np, D_np, V_np = np.linalg.svd(XX.numpy())
 
     F_recover = torch.reshape(V[:, -1], (3, 3))
+    # print('-', F_recover)
 
-    FU, FD, FV= torch.svd(F_recover, some=False)
+    FU, FD, FV= torch.svd(F_recover, some=True)
     if show_debug:
         print('[info.Debug @_E_from_XY] Singular values for recovered E(F):\n', FD.numpy())
 
     # FDnew = torch.diag(FD);
     # FDnew[2, 2] = 0;
     # F_recover_sing = torch.mm(FU, torch.mm(FDnew, FV.t()))
-    S_110 = torch.diag(torch.tensor([1., 1., 0.], dtype=torch.float64))
+    S_110 = torch.diag(torch.tensor([1., 1., 0.], dtype=FU.dtype, device=FU.device))
     E_recover_110 = torch.mm(FU, torch.mm(S_110, FV.t()))
     # F_recover_sing_rescale = F_recover_sing / torch.norm(F_recover_sing) * torch.norm(F)
 
+    # print(E_recover_110)
     if normalize:
         E_recover_110 = torch.mm(T2.t(), torch.mm(E_recover_110, T1))
     return E_recover_110
+
+def _E_from_XY_batch(X, Y, K, W=None, if_normzliedK=False, normalize=True, show_debug=False): # Ref: https://github.com/marktao99/python/blob/master/CVP/samples/sfm.py#L55
+    """ Normalized Eight Point Algorithom for E: [Manmohan] In practice, one would transform the data points by K^{-1}, then do a Hartley normalization, then estimate the F matrix (which is now E matrix), then set the singular value conditions, then denormalize. Note that it's better to set singular values first, then denormalize.
+        X, Y: [N, 2] """
+    assert X.dtype==torch.float32, 'batch_svd currently only supports torch.float32!'
+    if if_normzliedK:
+        X_normalizedK = X.float()
+        Y_normalizedK = Y.float()
+    else:
+        X_normalizedK = utils_misc._de_homo(torch.bmm(torch.inverse(K), utils_misc._homo(X).transpose(1, 2)).transpose(1, 2)).float()
+        Y_normalizedK = utils_misc._de_homo(torch.bmm(torch.inverse(K), utils_misc._homo(Y).transpose(1, 2)).transpose(1, 2)).float()
+
+    # assert normalize==False, 'Not supported in batch mode yet!'
+    if normalize:
+        X, Y, T1, T2 = _normalize_XY_batch(X_normalizedK, Y_normalizedK)
+    else:
+        X, Y = X_normalizedK, Y_normalizedK
+
+    # print(T1)
+    # print(T2)
+    # print(X)
+
+    xx = torch.cat([X, Y], dim=2)
+    XX = torch.stack([
+        xx[:, :, 2] * xx[:, :, 0], xx[:, :, 2] * xx[:, :, 1], xx[:, :, 2],
+        xx[:, :, 3] * xx[:, :, 0], xx[:, :, 3] * xx[:, :, 1], xx[:, :, 3],
+        xx[:, :, 0], xx[:, :, 1], torch.ones_like(xx[:, :, 0])
+    ], dim=2)
+
+    if W is not None:
+        XX = torch.bmm(W, XX)
+    # U, D, V = torch.svd(XX, some=False)
+    # print(XX[0, :2])
+    # print(XX.size())
+    # U, D, V = batch_svd(XX)
+    V_list = []
+    for XX_single in XX:
+        _, _, V_single = torch.svd(XX_single, some=True)
+        V_list.append(V_single[:, -1])
+    V_last_col = torch.stack(V_list)
+    # print(V_last_col.size(), '----')
+
+    if show_debug:
+        print('[info.Debug @_E_from_XY] Singualr values of XX:\n', D[0].numpy())
+
+    # F_recover = torch.reshape(V[:, :, -1], (-1, 3, 3))
+    F_recover = V_last_col.view(-1, 3, 3)
+
+    # FU, FD, FV= torch.svd(F_recover, some=False)
+    FU, FD, FV= batch_svd(F_recover)
+
+    if show_debug:
+        print('[info.Debug @_E_from_XY] Singular values for recovered E(F):\n', FD[0].numpy())
+
+    # FDnew = torch.diag(FD);
+    # FDnew[2, 2] = 0;
+    # F_recover_sing = torch.mm(FU, torch.mm(FDnew, FV.t()))
+    S_110 = torch.diag(torch.tensor([1., 1., 0.], dtype=FU.dtype, device=FU.device)).unsqueeze(0).expand(FV.size()[0], -1, -1)
+
+    E_recover_110 = torch.bmm(FU, torch.bmm(S_110, FV.transpose(1, 2)))
+    # F_recover_sing_rescale = F_recover_sing / torch.norm(F_recover_sing) * torch.norm(F)
+    # print(E_recover_110)
+    if normalize:
+        E_recover_110 = torch.bmm(T2.transpose(1, 2), torch.bmm(E_recover_110, T1))
+    return -E_recover_110
 
 def _F_from_XY(X, Y, W=None, normalize=True, show_debug=False): # Ref: https://github.com/marktao99/python/blob/master/CVP/samples/sfm.py#L55
     # X, Y: [N, 2]
@@ -122,7 +233,15 @@ def _F_from_XY(X, Y, W=None, normalize=True, show_debug=False): # Ref: https://g
     ], dim=0).t()
     if W is not None:
         XX = torch.mm(W, XX)
-    U, D, V = torch.svd(XX, some=False)
+    U, D, V = torch.svd(XX, some=True)
+    # print(XX.size(), U.size(), D.size(), V.size())
+    print(V.size(), V[:, -1].reshape([3, 3]).numpy())
+    # print(D.numpy())
+
+    u, d, v = batch_svd(XX.cuda().float().unsqueeze(0))
+    print(v.size(), v[0, :, -1].reshape([3, 3]).cpu().numpy())
+    # print(d.cpu().numpy().flatten())
+
     if show_debug:
         print('[info.Debug@_F_from_XY] Singualr values of XX:\n', D.numpy())
     # print(D.numpy())
@@ -139,14 +258,17 @@ def _F_from_XY(X, Y, W=None, normalize=True, show_debug=False): # Ref: https://g
     # print(V[-1].numpy())
 
     F_recover = torch.reshape(V[:, -1], (3, 3))
+    # F_recover = torch.reshape(v[0, :, -1].cpu(), (3, 3))
+    print(F_recover.dtype)
 
     # return F_recover, np.reshape(V_np[-1], (3, 3))
 
     # F_recover_rescale = F_recover / torch.norm(F_recover) * torch.norm(F)
     # print('-', F_recover_rescale.numpy())
-    FU, FD, FV= torch.svd(F_recover, some=False);
-    FDnew = torch.diag(FD);
-    FDnew[2, 2] = 0;
+    FU, FD, FV= torch.svd(F_recover, some=True)
+    FDnew = torch.diag(FD)
+    FDnew[2, 2] = 0
+    # print(FU.size(), FDnew.size(), FV.t().size())
     F_recover_sing = torch.mm(FU, torch.mm(FDnew, FV.t()))
     # F_recover_sing_rescale = F_recover_sing / torch.norm(F_recover_sing) * torch.norm(F)
 
@@ -218,7 +340,7 @@ def E_to_F(E, K):
 def _get_M2s(E):
     # Getting 4 possible poses from E
     U, S, V = torch.svd(E)
-    W = torch.tensor([[0,-1,0], [1,0,0], [0,0,1]], dtype=torch.float64)
+    W = torch.tensor([[0,-1,0], [1,0,0], [0,0,1]], dtype=E.dtype)
     if torch.det(torch.mm(U, torch.mm(W, V.t())))<0:
         W = -W
     # print('-- delta_t_gt', delta_t_gt)
@@ -237,7 +359,9 @@ def _get_M2s(E):
     M2s = [torch.cat((x, y), 1) for x, y in [(x,y) for x in R2s for y in t2s]]
     return R2s, t2s, M2s
 
-def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, show_debug=False, method_name='ours'):
+def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, depth_thres=50., show_debug=False, show_result=True, method_name='ours'):
+    if show_debug:
+        print('--- Recovering pose from E...')
     count_N = x1.shape[0]
     R2s, t2s, M2s = _get_M2s(E_est_th)
 
@@ -252,9 +376,8 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, show_debug=
             print('ERROR! Less than 8 points after inlier mask!')
             print(inlier_mask)
             return None
-
     # Cheirality check following OpenCV implementation: https://github.com/opencv/opencv/blob/808ba552c532408bddd5fe51784cf4209296448a/modules/calib3d/src/five-point.cpp#L513
-    depth_thres = 50.
+    depth_thres = depth_thres
     cheirality_checks = []
     M2_list = []
     error_Rt = ()
@@ -267,8 +390,8 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, show_debug=
         R2 = M2[:, :3]
         t2 = M2[:, 3:4]
         if show_debug:
-            print(M2, np.linalg.det(R2))
-
+            print(M2)
+            print(np.linalg.det(R2))
         X_tri_homo = cv2.triangulatePoints(np.matmul(K, M1), np.matmul(K, M2), x1.T, x2.T)
         X_tri = X_tri_homo[:3, :]/X_tri_homo[-1, :]
         # C1 = -np.matmul(R1, t1) # https://math.stackexchange.com/questions/82602/how-to-find-camera-position-and-rotation-from-a-4x4-matrix
@@ -285,12 +408,14 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, show_debug=
         cheirality_mask_12 = cheirality_mask_1 & cheirality_mask_2
         cheirality_checks.append(cheirality_mask_12)
 
-    print([np.sum(mask) for mask in cheirality_checks])
+    if show_debug:
+        print([np.sum(mask) for mask in cheirality_checks])
     good_M_index, non_zero_nums = max(enumerate([np.sum(mask) for mask in cheirality_checks]), key=operator.itemgetter(1))
     if non_zero_nums > 0:
         # Rt_idx = cheirality_checks.index(True)
         M_inv = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(M2s[good_M_index].numpy())))
-        print('The %d_th Rt meets the Cheirality Condition! with [R|t] (camera):\n'%good_M_index, M_inv)
+        if show_result:
+            print('The %d_th (0-based) Rt meets the Cheirality Condition! with [R|t] (camera):\n'%good_M_index, M_inv)
 
         if delta_Rt_gt is not None:
             R2 = M2s[good_M_index][:, :3].numpy()
@@ -300,14 +425,16 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, show_debug=
 
             R2 = M_inv[:, :3]
             t2 = M_inv[:, 3:4]
-            error_R = utils_geo.rot12_to_angle_error(R2, delta_Rt_gt[:, :3])
-            error_t = utils_geo.vector_angle(t2, delta_Rt_gt[:, 3:4])
-            print('Recovered by %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
+            error_R = utils_geo.rot12_to_angle_error(R2, delta_Rt_gt[:3, :3])
+            error_t = utils_geo.vector_angle(t2, delta_Rt_gt[:3, 3:4])
+            if show_result:
+                print('Recovered by %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
             error_Rt = (error_R, error_t)
 
-        print(M_inv)
     else:
-        raise ValueError('ERROR! 0 of qualified [R|t] found!')
+        # raise ValueError('ERROR! 0 of qualified [R|t] found!')
+        print('ERROR! 0 of qualified [R|t] found!')
+        error_Rt = ()
 
         # # Get rid of small angle points. @Manmo: you should discard points that are beyond a depth threshold (say, more than 100m), or which subtend a small angle between the two cameras (say, less than 5 degrees).
         # v1s = (X_tri-C1).T
@@ -451,8 +578,11 @@ def _E_F_from_Rt(R_th, t_th, K_th, tensor_input=False):
         t_th = torch.from_numpy(t_th).to(torch.float64)
     t_gt_x = utils_misc._skew_symmetric(t_th)
 #     print(t_gt_x, R_th)
-    E_gt_th = torch.matmul(t_gt_x, R_th)
-    F_gt_th = torch.matmul(torch.matmul(torch.inverse(K_th).t(), E_gt_th), torch.inverse(K_th))
+    E_gt_th = t_gt_x@R_th
+    if len(R_th.size())==2:
+        F_gt_th = torch.matmul(torch.matmul(torch.inverse(K_th).t(), E_gt_th), torch.inverse(K_th))
+    else:
+        F_gt_th = torch.inverse(K_th).transpose(1, 2) @ E_gt_th @ torch.inverse(K_th)
     return E_gt_th, F_gt_th
 
 def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_two_frame_loader, DSAC_params, delta_Rtij_inv, best_N = 10):
@@ -493,7 +623,7 @@ def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_t
     # F_third = F_gt_th.numpy()[2, 2] * F_third
     # print('--- F np\n', F_third)
 
-    F_est_th = _F_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), W=None, show_debug=True)
+    F_est_th = _F_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), W=None, show_debug=False)
     print('--- F est (should agree with F opencv)\n', (F_est_th.numpy() / F_est_th.numpy()[2, 2] * F_gt_th.numpy()[2, 2]))
     # print('--- F np\n', (F_np / F_np[2, 2] * F_gt_th.numpy()[2, 2]))
 
@@ -504,7 +634,7 @@ def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_t
     print('--- %d/%d inliers for estimated F.'%(sum(e<DSAC_params['inlier_thresh']), len(e)))
 
     # E_est_th = _F_to_E(F_est_th, kitti_two_frame_loader.K_th)
-    E_est_th = _E_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), kitti_two_frame_loader.K_th, W=None, show_debug=True)
+    E_est_th = _E_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), kitti_two_frame_loader.K_th, W=None, show_debug=False)
     U,S,V = torch.svd(E_est_th)
     print('[info.Debug @vali_with_best_M] Singular values for recovered E:\n', S.numpy())
 

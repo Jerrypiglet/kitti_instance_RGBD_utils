@@ -192,13 +192,13 @@ def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt,
 
     return random_idx, x1_sample, x2_sample
 
-def recover_camera_opencv(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1):
+def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1, show_result=True):
     # Compare with OpenCV with refs from:
     ## https://github.com/vcg-uvic/learned-correspondence-release/blob/16bef8a0293c042c0bd42f067d7597b8e84ef51a/tests.py#L232
     ## https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
     ## http://answers.opencv.org/question/90070/findessentialmat-or-decomposeessentialmat-do-not-work-correctly/
-
-    print('>>>>>>>>>>>>>>>> Running OpenCV camera pose estimation... ---------------')
+    if show_result:
+        print('>>>>>>>>>>>>>>>> Running OpenCV camera pose estimation... ---------------')
 
     # Mostly following: # https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
 
@@ -221,14 +221,16 @@ def recover_camera_opencv(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, thr
     # print(R, t)
     # else:
         # points, R, t, mask = cv2.recoverPose(E_recover, x1, x2)
-    print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0]))
+    if show_result:
+        print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0]))
 
     # R_cam, t_cam = utils_geo.invert_Rt(R, t)
 
     error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:3, :3])
     error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:3, 3:4])
-    print('Recovered by OpenCV %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
-    print(np.hstack((R, t)))
+    if show_result:
+        print('Recovered by OpenCV %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
+        print(np.hstack((R, t)))
 
     # M_r = np.hstack((R, t))
     # M_l = np.hstack((np.eye(3, 3), np.zeros((3, 1))))
@@ -238,8 +240,8 @@ def recover_camera_opencv(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, thr
     # point_4d = point_4d_hom / np.tile(point_4d_hom[-1, :], (4, 1))
     # point_3d = point_4d[:3, :].T
     # scipy.io.savemat('test.mat', {'X': point_3d})
-
-    print('<<<<<<<<<<<<<<<< DONE Running OpenCV camera pose estimation. ---------------')
+    if show_result:
+        print('<<<<<<<<<<<<<<<< DONE Running OpenCV camera pose estimation. ---------------')
 
     return np.hstack((R, t)), (error_R, error_t)
         

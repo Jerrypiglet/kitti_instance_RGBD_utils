@@ -12,23 +12,34 @@ def within(x, y, xlim, ylim):
 def identity_Rt():
     return np.hstack((np.eye(3, dtype=np.float64), np.zeros((3, 1), dtype=np.float64)))
 
-def _skew_symmetric(v): # v: [3, 1]
-    zero = torch.zeros_like(v[0, 0])
-    M = torch.stack([
-        zero, -v[2, 0], v[1, 0],
-        v[2, 0], zero, -v[0, 0],
-        -v[1, 0], v[0, 0], zero,
-    ], dim=0)
-    return torch.reshape(M, (3, 3))
-
+def _skew_symmetric(v): # v: [3, 1] or [batch_size, 3, 1]
+    if len(v.size())==2:
+        zero = torch.zeros_like(v[0, 0])
+        M = torch.stack([
+            zero, -v[2, 0], v[1, 0],
+            v[2, 0], zero, -v[0, 0],
+            -v[1, 0], v[0, 0], zero,
+        ], dim=0)
+        return M.view(3, 3)
+    else:
+        zero = torch.zeros_like(v[:, 0, 0])
+        M = torch.stack([
+            zero, -v[:, 2, 0], v[:, 1, 0],
+            v[:, 2, 0], zero, -v[:, 0, 0],
+            -v[:, 1, 0], v[:, 0, 0], zero,
+        ], dim=1)
+        return M.view(-1, 3, 3)
+    
 def _homo(x):
     # input: x [N, 2] or [batch_size, N, 2]
     # output: x_homo [N, 3]  or [batch_size, N, 3]
     assert len(x.size()) in [2, 3]
     if len(x.size())==2:
-        x_homo = torch.cat((x, torch.ones(x.size()[0], 1, dtype=x.dtype)), 1)
+        ones = torch.ones(x.size()[0], 1, dtype=x.dtype, device=x.device)
+        x_homo = torch.cat((x, ones), 1)
     elif len(x.size())==3:
-        x_homo = torch.cat((x, torch.ones(x.size()[0], x.size()[1], 1, dtype=x.dtype)), 2)
+        ones = torch.ones(x.size()[0], x.size()[1], 1, dtype=x.dtype, device=x.device)
+        x_homo = torch.cat((x, ones), 2)
     return x_homo
 
 def _de_homo(x_homo):
@@ -37,7 +48,7 @@ def _de_homo(x_homo):
     assert len(x_homo.size()) in [2, 3]
     epi = 1e-10
     if len(x_homo.size())==2:
-        x = x_homo[:, 0:1]/(x_homo[:, 2:3]+epi)
+        x = x_homo[:, :2]/(x_homo[:, 2:3]+epi)
     else:
         x = x_homo[:, :, :2]/(x_homo[:, :, 2:3]+epi)
     return x

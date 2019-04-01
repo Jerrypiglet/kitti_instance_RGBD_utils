@@ -50,6 +50,8 @@ class DSAC:
 		Y_sample = Y[idx, :]
 
 		return utils_F._E_from_XY(X_sample, Y_sample, self.K), idx
+		# Es =  utils_F._E_from_XY_batch(X_sample.unsqueeze(0).cuda(), Y_sample.unsqueeze(0).cuda(), self.K.unsqueeze(0).cuda())
+		return Es.cpu().squeeze(0), idx
 
 	def __soft_inlier_count(self, H, X, Y):
 		'''

@@ -21,7 +21,8 @@ def length(v):
 def vector_angle(v1, v2):
     """ v1, v2: [N, 1] or (N)
         return: angles in degree: () """
-    return math.acos(dotproduct(v1, v2) / (length(v1) * length(v2))) / np.pi * 180.
+    dot_product = dotproduct(v1, v2) / (length(v1) * length(v2) + 1e-10)
+    return math.acos(np.clip(dot_product, -1., 1.)) / np.pi * 180.
 
 def dotproducts(v1s, v2s):
     return np.sum(v1s * v2s, axis=1, keepdims=True)
