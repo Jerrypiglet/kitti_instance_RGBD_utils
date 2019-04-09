@@ -235,11 +235,11 @@ def _F_from_XY(X, Y, W=None, normalize=True, show_debug=False): # Ref: https://g
         XX = torch.mm(W, XX)
     U, D, V = torch.svd(XX, some=True)
     # print(XX.size(), U.size(), D.size(), V.size())
-    print(V.size(), V[:, -1].reshape([3, 3]).numpy())
+    # print(V.size(), V[:, -1].reshape([3, 3]).numpy())
     # print(D.numpy())
 
-    u, d, v = batch_svd(XX.cuda().float().unsqueeze(0))
-    print(v.size(), v[0, :, -1].reshape([3, 3]).cpu().numpy())
+    # u, d, v = batch_svd(XX.cuda().float().unsqueeze(0))
+    # print(v.size(), v[0, :, -1].reshape([3, 3]).cpu().numpy())
     # print(d.cpu().numpy().flatten())
 
     if show_debug:
@@ -249,17 +249,12 @@ def _F_from_XY(X, Y, W=None, normalize=True, show_debug=False): # Ref: https://g
     # print(U.size(), D.size(), V.size(), X.size())
     # print(V[:, -1].numpy()))
 
-    U_np, D_np, V_np = np.linalg.svd(XX.numpy())
-    # U_np, D_np, V_np = np.linalg.svd(A)
-    # print(D)
-    # print(V, V.shape)
-    # print(U.shape, D.shape, V.shape, X.numpy().shape)
+    # U_np, D_np, V_np = np.linalg.svd(XX.numpy())
     # V_np = torch.from_numpy(V_np)
     # print(V[-1].numpy())
 
     F_recover = torch.reshape(V[:, -1], (3, 3))
     # F_recover = torch.reshape(v[0, :, -1].cpu(), (3, 3))
-    print(F_recover.dtype)
 
     # return F_recover, np.reshape(V_np[-1], (3, 3))
 
@@ -585,11 +580,14 @@ def _E_F_from_Rt(R_th, t_th, K_th, tensor_input=False):
         F_gt_th = torch.inverse(K_th).transpose(1, 2) @ E_gt_th @ torch.inverse(K_th)
     return E_gt_th, F_gt_th
 
-def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_two_frame_loader, DSAC_params, delta_Rtij_inv, best_N = 10):
+def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_two_frame_loader, delta_Rtij_inv, \
+    best_N = 10, if_need_only_idx=False):
     """ Validate pose estimation with best 10 corres."""
     # Validation: use best 10 corres with smalles Sampson distance to GT F to compute E and F
-    print('>>>>>>>>>>>>>>>> Check with best 20 corres. ---------------')
-    errors = _sampson_dist(F_gt_th, torch.from_numpy(x1).to(torch.float64), torch.from_numpy(x2).to(torch.float64), False)
+    print('>>>>>>>>>>>>>>>> Check with best %d corres. ---------------'%best_N)
+    # _geo_dist = _sampson_dist
+    _geo_dist = _sym_epi_dist
+    errors = _geo_dist(F_gt_th, torch.from_numpy(x1).to(torch.float64), torch.from_numpy(x2).to(torch.float64), False)
     sort_index = np.argsort(errors.numpy())
 
     best_N = best_N
@@ -597,54 +595,50 @@ def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_t
     # random.seed(10)
     # mask_index = random.sample(range(x1.shape[0]), 8)
     print('--- Best %d errors'%best_N, errors[mask_index].numpy())
+    # print(errors[sort_index].numpy())
 
-    utils_vis.draw_corr(img1_rgb_np, img2_rgb_np, x1[mask_index, :], x2[mask_index, :], 2)
+    # print('--- F GT\n', F_gt_th.numpy())
 
-    # utils_vis.draw_corr_widths(img1_rgb_np, img2_rgb_np, x1[mask_index, :], x2[mask_index, :], np.zeros(x2[mask_index, :].shape[0])+2, '[Best 20] Sampson distance w.r.t. ground truth F (the thicker the worse corres.)', False)
-    # E_est_th = _E_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), kitti_two_frame_loader.K_th)
-    # print('+++ E est&GT', (E_est_th / torch.norm(E_est_th) * torch.norm(E_gt_th)).numpy())
-    # print(E_gt_th.numpy())
+    # F_opencv, _ = cv2.findFundamentalMat(x1[mask_index, :], x2[mask_index, :], method=cv2.FM_8POINT) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+    # F_opencv = F_gt_th.numpy()[2, 2] * F_opencv
+    # print('--- F opencv\n', F_opencv)
 
+    # # F_third = compute_fundamental_scipy(utils_misc.homo_np(x1[mask_index, :]).T, utils_misc.homo_np(x2[mask_index, :]).T)
+    # # F_third = F_gt_th.numpy()[2, 2] * F_third
+    # # print('--- F scipy\n', F_third)
 
-    # R2s_list, t2s_list, M2_list = _get_M2s(E_est_th)
-    # print('=== M', M2_list[0].numpy())
+    # # F_third, A = compute_fundamental_np(utils_misc.homo_np(x1[mask_index, :]).T, utils_misc.homo_np(x2[mask_index, :]).T)
+    # # F_third = F_gt_th.numpy()[2, 2] * F_third
+    # # print('--- F np\n', F_third)
 
-    print('--- F GT\n', F_gt_th.numpy())
-
-    F_opencv, _ = cv2.findFundamentalMat(x1[mask_index, :], x2[mask_index, :], method=cv2.FM_8POINT) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
-    F_opencv = F_gt_th.numpy()[2, 2] * F_opencv
-    print('--- F opencv\n', F_opencv)
-
-    # F_third = compute_fundamental_scipy(utils_misc.homo_np(x1[mask_index, :]).T, utils_misc.homo_np(x2[mask_index, :]).T)
-    # F_third = F_gt_th.numpy()[2, 2] * F_third
-    # print('--- F scipy\n', F_third)
-
-    # F_third, A = compute_fundamental_np(utils_misc.homo_np(x1[mask_index, :]).T, utils_misc.homo_np(x2[mask_index, :]).T)
-    # F_third = F_gt_th.numpy()[2, 2] * F_third
-    # print('--- F np\n', F_third)
-
-    F_est_th = _F_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), W=None, show_debug=False)
-    print('--- F est (should agree with F opencv)\n', (F_est_th.numpy() / F_est_th.numpy()[2, 2] * F_gt_th.numpy()[2, 2]))
-    # print('--- F np\n', (F_np / F_np[2, 2] * F_gt_th.numpy()[2, 2]))
+    # F_est_th = _F_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), W=None, show_debug=False)
+    # print('--- F est (should agree with F opencv)\n', (F_est_th.numpy() / F_est_th.numpy()[2, 2] * F_gt_th.numpy()[2, 2]))
+    # # print('--- F np\n', (F_np / F_np[2, 2] * F_gt_th.numpy()[2, 2]))
 
 
-    ## Check number of inliers w.r.t F_gt and thres
-    errors_estF = _sampson_dist(F_est_th, torch.from_numpy(x1).to(torch.float64), torch.from_numpy(x2).to(torch.float64), False)
-    e = np.sort(errors_estF.numpy().tolist())
-    print('--- %d/%d inliers for estimated F.'%(sum(e<DSAC_params['inlier_thresh']), len(e)))
+    # ## Check number of inliers w.r.t F_gt and thres
+    # errors_estF = _sampson_dist(F_est_th, torch.from_numpy(x1).to(torch.float64), torch.from_numpy(x2).to(torch.float64), False)
+    # e = np.sort(errors_estF.numpy().tolist())
+    # print('--- %d/%d inliers for estimated F.'%(sum(e<DSAC_params['inlier_thresh']), len(e)))
 
-    # E_est_th = _F_to_E(F_est_th, kitti_two_frame_loader.K_th)
-    E_est_th = _E_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), kitti_two_frame_loader.K_th, W=None, show_debug=False)
+    E_est_th = _E_from_XY(torch.from_numpy(x1[mask_index, :]), torch.from_numpy(x2[mask_index, :]), kitti_two_frame_loader.K_th, \
+        W=None, show_debug=False)
+
+    if if_need_only_idx:
+        return mask_index, E_est_th.numpy()
+
     U,S,V = torch.svd(E_est_th)
     print('[info.Debug @vali_with_best_M] Singular values for recovered E:\n', S.numpy())
 
-    M2_list = _E_to_M(E_est_th, kitti_two_frame_loader.K, x1, x2, errors_estF.numpy()<DSAC_params['inlier_thresh'], delta_Rtij_inv, show_debug=False, method_name='OpenCV')
+    M2_list = _E_to_M(E_est_th, kitti_two_frame_loader.K, x1, x2, delta_Rt_gt=delta_Rtij_inv, show_debug=False, method_name='Ours_best%d'%best_N)
+
+    utils_vis.draw_corr(img1_rgb_np, img2_rgb_np, x1[mask_index, :], x2[mask_index, :], 2)
 
     print('GT camera matrix: (camnera)\n', delta_Rtij_inv)
 
     print('<<<<<<<<<<<<<<<< DONE Check with best %d corres. ---------------'%best_N)
 
-    return mask_index[:best_N]
+    return mask_index, None
 
 
 # def compute_fundamental_scipy(x1,x2):

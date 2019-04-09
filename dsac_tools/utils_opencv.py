@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import scipy
 import torch
+import random
 import matplotlib.pyplot as plt
 import dsac_tools.utils_vis as utils_vis
 import dsac_tools.utils_misc as utils_misc
@@ -10,18 +11,21 @@ import dsac_tools.utils_geo as utils_geo
 
 def PIL_to_gray(im_PIL):
     img1_rgb = np.array(im_PIL)
-    img1 = cv2.cvtColor(img1_rgb, cv2.COLOR_BGR2GRAY)
+    if len(img1_rgb.shape)==3:
+        img1 = cv2.cvtColor(img1_rgb, cv2.COLOR_BGR2GRAY)
+    else:
+        img1 = img1_rgb
     return img1
 
 def SIFT_det(img, img_rgb, visualize=False, nfeatures=2000):
     # Initiate SIFT detector
     # pip install opencv-python==3.4.2.16, opencv-contrib-python==3.4.2.16
     # https://www.pyimagesearch.com/2015/07/16/where-did-sift-and-surf-go-in-opencv-3/
-    sift = cv2.xfeatures2d.SIFT_create(nfeatures=nfeatures, contrastThreshold=1e-5)
+    sift = cv2.xfeatures2d.SIFT_create(contrastThreshold=1e-5)
 
     # find the keypoints and descriptors with SIFT
     kp, des = sift.detectAndCompute(img,None)
-    print("# kps: {}, descriptors: {}".format(len(kp), des.shape))
+    # print("# kps: {}, descriptors: {}".format(len(kp), des.shape))
     x_all = np.array([p.pt for p in kp])
 
     if visualize:
@@ -32,7 +36,7 @@ def SIFT_det(img, img_rgb, visualize=False, nfeatures=2000):
 
     return x_all, kp, des
 
-def KNN_match(des1, des2, x1_all, x2_all, kp1, kp2, img1_rgb, img2_rgb, visualize=False, if_BF=False):
+def KNN_match(des1, des2, x1_all, x2_all, kp1, kp2, img1_rgb, img2_rgb, visualize=False, if_BF=False, if_ratio_test=True):
     # https://opencv-python-tutroals.readthedocs.io/en/latest/py_tutorials/py_feature2d/py_matcher/py_matcher.html
     # des2 = np.vstack((des2, np.zeros((1, 128), dtype=des2.dtype)))
     # print(des1.shape, des2.shape)
@@ -58,14 +62,16 @@ def KNN_match(des1, des2, x1_all, x2_all, kp1, kp2, img1_rgb, img2_rgb, visualiz
     all_m = []
     for m,n in matches:
         all_m.append(m)
-        if m.distance < 0.7*n.distance:
-            good.append(m)
-
+        if if_ratio_test:
+            if m.distance < 0.8*n.distance:
+                good.append(m)
+    if not if_ratio_test:
+        good = all_m
     x1 = x1_all[[mat.queryIdx for mat in good], :]
     x2 = x2_all[[mat.trainIdx for mat in good], :]
     assert x1.shape == x2.shape
 
-    print('# good points: ', len(good))
+    print('# good points: %d/(%d, %d)'%(len(good), des1.shape[0], des2.shape[0]))
 
     if visualize:
         draw_params = dict(matchColor = (0,255,0), # draw matches in green color
@@ -78,36 +84,35 @@ def KNN_match(des1, des2, x1_all, x2_all, kp1, kp2, img1_rgb, img2_rgb, visualiz
         plt.imshow(img3, 'gray')
         plt.show()
 
-        plt.figure(figsize=(30, 8))
-        plt.imshow(img1_rgb)
-        plt.scatter(x1[:, 0], x1[:, 1], s=10, marker='o', c='y')
-        plt.title('Good points, #%d'%x1.shape[0])
-        plt.show()
+        # plt.figure(figsize=(30, 8))
+        # plt.imshow(img1_rgb)
+        # plt.scatter(x1[:, 0], x1[:, 1], s=10, marker='o', c='y')
+        # plt.title('Good points, #%d'%x1.shape[0])
+        # plt.show()
 
-        plt.figure(figsize=(30, 8)) 
-        plt.imshow(img2_rgb)
-        plt.scatter(x2[:, 0], x2[:, 1], s=10, marker='o', c='y')
-        plt.title('Good points, #%d'%x1.shape[0])
-        plt.show()
+        # plt.figure(figsize=(30, 8)) 
+        # plt.imshow(img2_rgb)
+        # plt.scatter(x2[:, 0], x2[:, 1], s=10, marker='o', c='y')
+        # plt.title('Good points, #%d'%x1.shape[0])
+        # plt.show()
 
     good_ij = [[mat.queryIdx for mat in good], [mat.trainIdx for mat in good]]
     all_ij = [[mat.queryIdx for mat in all_m], [mat.trainIdx for mat in all_m]]
 
     return x1, x2, np.asarray(all_ij).T.copy(), np.asarray(good_ij).T.copy()
 
-def show_epipolar_opencv(x1, x2, img1_rgb, img2_rgb, F_gt):
+def show_epipolar_opencv(x1, x2, img1_rgb, img2_rgb, F_gt, colors=None):
     lines2 = cv2.computeCorrespondEpilines(x1.reshape(-1,1,2).astype(int), 1,F_gt)
     lines2 = lines2.reshape(-1,3)
-    img3,img4 = utils_vis.drawlines(np.array(img2_rgb).copy(), np.array(img1_rgb).copy(), lines2, x2.astype(int), x1.astype(int))
-
-    plt.figure(figsize=(30, 8))
-    # plt.subplot(121)
-    plt.imshow(img4)
+    img3,img4, colors = utils_vis.drawlines(np.array(img2_rgb).copy(), np.array(img1_rgb).copy(), lines2, x2.astype(int), x1.astype(int), colors=colors)
+    # plt.figure(figsize=(30, 8))
+    # # plt.subplot(121)
+    # plt.imshow(img4)
     # plt.subplot(122),
     plt.figure(figsize=(30, 8))
     plt.imshow(img3)
     plt.show()
-    return
+    return colors
 
 def show_epipolar_rui(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
     N_points = x1.shape[0]
@@ -121,11 +126,11 @@ def show_epipolar_rui(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
     colors = np.random.rand(x2.shape[0])
     plt.figure(figsize=(30, 8))
     plt.subplot(121)
-    plt.imshow(img1_rgb)
+    plt.imshow(img1_rgb, cmap=None if len(img1_rgb.shape)==3 else plt.get_cmap('gray'))
     plt.scatter(x1[:, 0], x1[:, 1], s=50, c=colors, edgecolors='w')
     plt.subplot(122)
     # plt.figure(figsize=(30, 8))
-    plt.imshow(img2_rgb)
+    plt.imshow(img2_rgb, cmap=None if len(img2_rgb.shape)==3 else plt.get_cmap('gray'))
     plt.plot(right_epipolar_x, right_epipolar_y)
     plt.scatter(x2[:, 0], x2[:, 1], s=50, c=colors, edgecolors='w')
     plt.xlim(0, im_shape[1]-1)
@@ -161,68 +166,85 @@ def show_epipolar_normalized(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
     plt.gca().set_aspect('equal', adjustable='box')
     plt.show()
 
-def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt, kitti_two_frame_loader, visualize=False):
-    import random
+def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt, im_shape=None, \
+    visualize=False, if_sample=True, colors=None, random_idx=None):
     # random.seed(10)
-    N_points = 50
-    random_idx = random.sample(range(x1.shape[0]), N_points)
-    # random_idx = mask_index
-    x1_sample = x1[random_idx, :]
-    x2_sample = x2[random_idx, :]
+    if if_sample:
+        N_points = 20
+        if random_idx is None:
+            random_idx = random.sample(range(x1.shape[0]), N_points)
+        # random_idx = mask_index
+        x1_sample = x1[random_idx, :]
+        x2_sample = x2[random_idx, :]
+    else:
+        x1_sample, x2_sample = x1, x2
+        random_idx = range(x1.shape[0])
+
 
     if visualize:
         print('>>>>>>>>>>>>>>>> Sample points, and check epipolar and Sampson distances. ---------------')
 
         ## Draw epipolar lines: by OpenCV
-        show_epipolar_opencv(x1_sample, x2_sample, img1_rgb, img2_rgb, F_gt)
+        colors = show_epipolar_opencv(x1_sample, x2_sample, img1_rgb, img2_rgb, F_gt, colors=colors)
 
-        ## Draw epipolar lines: by Rui
-        show_epipolar_rui(x1_sample, x2_sample, img1_rgb, img2_rgb, F_gt, kitti_two_frame_loader.im_shape)
+        # ## Draw epipolar lines: by Rui
+        # show_epipolar_rui(x1_sample, x2_sample, img1_rgb, img2_rgb, F_gt, im_shape)
             
-        ## Show corres.
-        utils_vis.draw_corr(img1_rgb_np, img2_rgb_np, x1_sample, x2_sample, 2)
+        # ## Show corres.
+        # utils_vis.draw_corr(img1_rgb_np, img2_rgb_np, x1_sample, x2_sample, 2)
 
-        ## Show Sampson distances
-        sampson_dist_gtF = utils_F._sampson_dist(torch.from_numpy(F_gt), torch.from_numpy(x1_sample), torch.from_numpy(x2_sample), False)
-        print(sampson_dist_gtF.numpy())
-        sampson_dist_gtF_plot = np.log(sampson_dist_gtF.numpy()+1)+1
-        utils_vis.draw_corr_widths(img1_rgb_np, img2_rgb_np, x1_sample, x2_sample, sampson_dist_gtF_plot, 'Sampson distance w.r.t. ground truth F (the thicker the worse corres.)', False)
+        # ## Show Sampson distances
+        # sampson_dist_gtF = utils_F._sampson_dist(torch.from_numpy(F_gt), torch.from_numpy(x1_sample), torch.from_numpy(x2_sample), False)
+        # # print(sampson_dist_gtF.numpy())
+        # sampson_dist_gtF_plot = np.log(sampson_dist_gtF.numpy()+1)+1
+        # utils_vis.draw_corr_widths(img1_rgb_np, img2_rgb_np, x1_sample, x2_sample, sampson_dist_gtF_plot, 'Sampson distance w.r.t. ground truth F (the thicker the worse corres.)', False)
 
         print('<<<<<<<<<<<<<<<< DONE. Sample points, and check epipolar and Sampson distances. ---------------')
 
-    return random_idx, x1_sample, x2_sample
+    return random_idx, x1_sample, x2_sample, colors
 
-def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1, show_result=True):
+def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1, show_result=True, c=False, \
+    if_normalized=False, method_app='', E_given=None):
     # Compare with OpenCV with refs from:
     ## https://github.com/vcg-uvic/learned-correspondence-release/blob/16bef8a0293c042c0bd42f067d7597b8e84ef51a/tests.py#L232
     ## https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
     ## http://answers.opencv.org/question/90070/findessentialmat-or-decomposeessentialmat-do-not-work-correctly/
+    method_name = '5 point'+method_app if five_point else '8 point'+method_app
+
     if show_result:
-        print('>>>>>>>>>>>>>>>> Running OpenCV camera pose estimation... ---------------')
+        print('>>>>>>>>>>>>>>>> Running OpenCV camera pose estimation... [%s] ---------------'%method_name)
 
     # Mostly following: # https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
+    if E_given is None:
+        if five_point:
+            if if_normalized:
+                E_5point, mask1 = cv2.findEssentialMat(x1, x2, method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+            else:
+                E_5point, mask1 = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+            # x1_norm = cv2.undistortPoints(np.expand_dims(x1, axis=1), cameraMatrix=K, distCoeffs=None) 
+            # x2_norm = cv2.undistortPoints(np.expand_dims(x2, axis=1), cameraMatrix=K, distCoeffs=None)
+            # E_5point, mask = cv2.findEssentialMat(x1_norm, x2_norm, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+        else:
+            F_8point, _ = cv2.findFundamentalMat(x1, x2, method=cv2.RANSAC) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+            E_8point = K.T @ F_8point @ K
+            U,S,V = np.linalg.svd(E_8point)
+            E_8point = U @ np.diag([1., 1., 0.]) @ V
 
-    E_5point, mask = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+        E_recover = E_5point if five_point else E_8point
+    else:
+        E_recover = E_given
+        print('Use given E @recover_camera_opencv')
 
-    # x1_norm = cv2.undistortPoints(np.expand_dims(x1, axis=1), cameraMatrix=K, distCoeffs=None) 
-    # x2_norm = cv2.undistortPoints(np.expand_dims(x2, axis=1), cameraMatrix=K, distCoeffs=None)
-    # E_5point, mask = cv2.findEssentialMat(x1_norm, x2_norm, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+    if if_normalized:
+        points, R, t, mask2 = cv2.recoverPose(E_recover, x1, x2, mask=mask1.copy()) # returns the inliers (subset of corres that pass the Cheirality check)
+    else:
+        points, R, t, mask2 = cv2.recoverPose(E_recover, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), mask=mask1.copy())
 
-    F_8point, _ = cv2.findFundamentalMat(x1, x2, method=cv2.RANSAC) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
-    E_8point = K.T @ F_8point @ K
-    U,S,V = np.linalg.svd(E_8point)
-    E_8point = U @ np.diag([1., 1., 0.]) @ V
-
-    method_name = '5 point' if five_point else '8 point'
-    E_recover = E_5point if five_point else E_8point
-    # E_recover = E_5point
-    # if five_point:
-    points, R, t, mask = cv2.recoverPose(E_recover, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
     # print(R, t)
     # else:
         # points, R, t, mask = cv2.recoverPose(E_recover, x1, x2)
     if show_result:
-        print('# %d/%d inliers from OpenCV.'%(np.sum(mask==255), mask.shape[0]))
+        print('# (%d, %d)/%d inliers from OpenCV.'%(np.sum(mask1!=0), np.sum(mask2!=0), mask2.shape[0]))
 
     # R_cam, t_cam = utils_geo.invert_Rt(R, t)
 
@@ -240,10 +262,11 @@ def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold
     # point_4d = point_4d_hom / np.tile(point_4d_hom[-1, :], (4, 1))
     # point_3d = point_4d[:3, :].T
     # scipy.io.savemat('test.mat', {'X': point_3d})
+
     if show_result:
         print('<<<<<<<<<<<<<<<< DONE Running OpenCV camera pose estimation. ---------------')
 
-    return np.hstack((R, t)), (error_R, error_t)
+    return np.hstack((R, t)), (error_R, error_t), mask2.flatten()>0, E_recover
         
 # def recover_camera(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1):
 #     # Compare with OpenCV with refs from:

@@ -72,8 +72,9 @@ class KittiLoader(object):
         imu2velo_mat = transform_from_rot_trans(imu2velo_dict['R'], imu2velo_dict['T'])
         cam_2rect_mat = transform_from_rot_trans(cam2cam_dict['R_rect_00'], np.zeros(3))
 
-        self.imu2cam = self.Rtl_gt.copy() @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
-        # imu2cam = self.Rtl_gt @ self.R_cam2rect @ self.velo2cam @ imu2velo_mat
+        # self.imu2cam = self.Rtl_gt.copy() @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
+        self.imu2cam = cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
+
         for n, f in enumerate(oxts):
             metadata = np.genfromtxt(f)
             speed = metadata[8:11]
@@ -83,7 +84,6 @@ class KittiLoader(object):
 
             if scale is None:
                 scale = np.cos(lat * np.pi / 180.)
-
             imu_pose_matrix = pose_from_oxts_packet(metadata[:6], scale)
             # if origin is None:
             #     origin = pose_matrix
@@ -160,7 +160,7 @@ class KittiLoader(object):
         # print(tl_gt)
         # print(tr_gt)
 
-        self.Rtl_gt = np.vstack((np.hstack((Rl_gt, tl_gt)), np.array([0., 0., 0., 1.], dtype=np.float64)))
+        self.Rtl_gt = np.vstack((np.hstack((Rl_gt, tl_gt)), np.array([0., 0., 0., 1.], dtype=np.float64))) # Scene motion
         self.delta_Rtlr_gt = np.matmul(np.hstack((Rr_gt, tr_gt)), np.linalg.inv(self.Rtl_gt))
         self.delta_Rlr_gt = self.delta_Rtlr_gt[:, :3]
         self.delta_tlr_gt = self.delta_Rtlr_gt[:, 3:4]
@@ -207,7 +207,7 @@ class KittiLoader(object):
         # val_idxes = [idx for idx in range(val_inds_both.shape[0]) if val_inds_both[idx]] # within indexes
 
         val_idxes = utils_misc.vis_masks_to_inds(val_inds_list[0], val_inds_list[1])
-        return val_idxes, X_rect
+        return val_idxes, X_rect # list, 3*N
 
     def rectify_all(self, visualize=False):
         # for each frame, get the visible points on front view with identity left camera, as well as indexes of points on both left/right images
@@ -235,22 +235,21 @@ class KittiLoader(object):
         # print('Rti', Rtj)
 
         X_rect_i = self.X_rect_list[i]
+
+        np.set_printoptions(precision=8, suppress=True)\
+
         # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(Rti)) @ utils_misc.Rt_pad(Rtj))
         odo_pose = self.imu2cam @ np.linalg.inv(self.scene_data['imu_pose_matrix'][i]) @ self.scene_data['imu_pose_matrix'][j] @ np.linalg.inv(self.imu2cam) # camera motion
-        # print(i, '\n', self.scene_data['imu_pose_matrix'][i])
-        # print(j, '\n', self.scene_data['imu_pose_matrix'][j])
-        # print(self.imu2cam)
-        delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion
-        # print(odo_pose)
+        # delta_Rtij = utils_misc.Rt_depad(np.linalg.inv(odo_pose)) # scene motion;  [RUI] Cam 0
 
+        print(self.imu2cam @ np.linalg.inv(self.scene_data['imu_pose_matrix'][j]) @ self.scene_data['imu_pose_matrix'][i] @ np.linalg.inv(self.imu2cam))
 
-        val_inds_i = utils_vis.reproj_and_scatter(utils_misc.identity_Rt(), X_rect_i, self.dataset_rgb[i][0], self, visualize=visualize, title_appendix='frame %d (left)'%i)
-        val_inds_j = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i, self.dataset_rgb[j][0], self, visualize=visualize, title_appendix='frame %d (left)'%j)
-
+        delta_Rtij = utils_misc.Rt_depad(self.Rtl_gt @ np.linalg.inv(odo_pose) @ np.linalg.inv(self.Rtl_gt)) # [RUI] Cam 2
+        val_inds_i, _ = utils_vis.reproj_and_scatter(utils_misc.identity_Rt(), X_rect_i.T, self.dataset_rgb[i][0], self, visualize=visualize, title_appendix='frame %d (left)'%i, set_lim=True)
+        val_inds_j, _ = utils_vis.reproj_and_scatter(delta_Rtij, X_rect_i.T, self.dataset_rgb[j][0], self, visualize=visualize, title_appendix='frame %d (left)'%j, set_lim=True)
         X_rect_j = self.X_rect_list[j]
         # val_inds_j = utils_vis.reproj_and_scatter(Rt0, X_rect_j, self.dataset_rgb[j][0], self, visualize=visualize)  
         val_idxes = utils_misc.vis_masks_to_inds(val_inds_i, val_inds_j)
-
         X_rect_i_vis = X_rect_i[:, val_idxes]
 
         delta_Rtij_inv = utils_misc.Rt_depad(odo_pose) # camera motion
@@ -260,7 +259,7 @@ class KittiLoader(object):
         angle_R = utils_geo.rot12_to_angle_error(np.eye(3), delta_Rtij_inv[:, :3])
         angle_t = utils_geo.vector_angle(np.array([[0.], [0.], [1.]]), delta_Rtij_inv[:, 3:4])
 
-        print('Between frame %d and %d: The rotation angle (degree) %.4f, and translation angle (degree) %.4f'%(i, j, angle_R, angle_t))
+        print('>>>>>>>>>>>>>>>> Between frame %d and %d: \nThe rotation angle (degree) %.4f, and translation angle (degree) %.4f'%(i, j, angle_R, angle_t))
 
 
         return X_rect_i, X_rect_i_vis, delta_Rtij, delta_Rtij_inv, self.dataset_rgb[i][0], self.dataset_rgb[j][0]
@@ -330,33 +329,35 @@ def read_calib_file(path):
 
     return data
 
-def rectify(velo_reproj, calibs):
+def rectify(velo_homo, calibs):
         val_inds_list = []
 
-        X_homo = np.dot(np.dot(calibs['cam_2rect'], calibs['velo2cam']), velo_reproj.T) # 4*N
-        X_homo_rect = np.matmul(calibs['Rtl_gt'], X_homo)
-        X_rect = X_homo_rect[:3, :] / X_homo_rect[3:4, :]
+        X_homo = np.dot(np.dot(calibs['cam_2rect'], calibs['velo2cam']), velo_homo.T) # 4*N
+        X_cam0 = utils_misc.de_homo_np(X_homo.T).copy()
+        X_rect_homo = np.matmul(calibs['Rtl_gt'], X_homo)
+        X_rect = X_rect_homo[:3, :] / X_rect_homo[3:4, :]
 
         front_mask = X_rect[-1, :]>0
         X_rect = X_rect[:, front_mask]
-        X_homo_rect = X_homo_rect[:, front_mask]
+        X_rect_homo = X_rect_homo[:, front_mask]
+        X_cam0 = X_cam0[front_mask, :]
 
         # Plot with recfitied X and R, t
-        x1_homo = np.matmul(calibs['K'], np.matmul(np.hstack((np.eye(3), np.zeros((3, 1)))), X_homo_rect)).T
+        x1_homo = np.matmul(calibs['K'], np.matmul(np.hstack((np.eye(3), np.zeros((3, 1)))), X_rect_homo)).T
         x1 = x1_homo[:, 0:2]/x1_homo[:, 2:3]
-        val_inds = utils_misc.within(x1[:, 0], x1[:, 1], calibs['im_shape'][1], calibs['im_shape'][0])
+        val_inds = utils_misc.within(x1[:, 0], x1[:, 1], calibs['im_shape'][1]-1, calibs['im_shape'][0]-1)
         val_inds_list.append(val_inds)
 
-        x2_homo = np.matmul(calibs['K'], np.matmul(np.hstack((calibs['delta_Rlr_gt'], calibs['delta_tlr_gt'])), X_homo_rect)).T
-        x2 = x2_homo[:, :2]/x2_homo[:, 2:3]
-        val_inds = utils_misc.within(x1[:, 0], x1[:, 1], calibs['im_shape'][1], calibs['im_shape'][0])
-        val_inds_list.append(val_inds)
+        # x2_homo = np.matmul(calibs['K'], np.matmul(np.hstack((calibs['delta_Rlr_gt'], calibs['delta_tlr_gt'])), X_homo_rect)).T
+        # x2 = x2_homo[:, :2]/x2_homo[:, 2:3]
+        # val_inds = utils_misc.within(x1[:, 0], x1[:, 1], calibs['im_shape'][1]-1, calibs['im_shape'][0]-1)
+        # val_inds_list.append(val_inds)
 
         # val_inds_both = val_inds_list[0] & val_inds_list[1]
         # val_idxes = [idx for idx in range(val_inds_both.shape[0]) if val_inds_both[idx]] # within indexes
 
-        val_idxes = utils_misc.vis_masks_to_inds(val_inds_list[0], val_inds_list[1])
-        return val_idxes, X_rect
+        val_idxes = utils_misc.vis_masks_to_inds(val_inds_list[0], val_inds_list[0])
+        return val_idxes, X_rect.T, X_cam0
 
 def load_velo_scan(velo_filename):
     # https://github.com/charlesq34/frustum-pointnets/blob/889c277144a33818ddf73c4665753975f9397fc4/kitti/kitti_util.py#L270
@@ -394,3 +395,19 @@ def rotz(t):
     return np.array([[c, -s,  0],
                      [s,  c,  0],
                      [0,  0,  1]])
+
+def scale_intrinsics(mat, sx, sy):
+    assert mat.shape==(3, 3)
+    out = np.copy(mat)
+    out[0,0] *= sx
+    out[0,2] *= sx
+    out[1,1] *= sy
+    out[1,2] *= sy
+    return out
+
+def scale_P(P, sx, sy):
+    assert P.shape==(3, 4)
+    out = np.copy(P)
+    out[0] *= sx
+    out[1] *= sy
+    return out

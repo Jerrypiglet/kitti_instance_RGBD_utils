@@ -19,8 +19,8 @@ coloredlogs.install(level='INFO', logger=logger)
 
 import cv2
 
-from kitti_tools.utils_kitti import *
-from utils_good import *
+# from kitti_tools.utils_kitti import *
+# from utils_good import *
 
 class KittiRawLoader(object):
     def __init__(self,
@@ -194,7 +194,8 @@ class KittiRawLoader(object):
                 'im_shape': [self.img_height, self.img_width]}
             calibs.update(calibs_rects)
 
-            scene_data['imu2cam'] = calibs['Rtl_gt'] @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
+            # scene_data['imu2cam'] = calibs['Rtl_gt'] @ cam_2rect_mat @ velo2cam_mat @ imu2velo_mat
+            scene_data['imu2cam'] = cam_2rect_mat @ velo2cam_mat @ imu2velo_mat #  [RUI] In Cam 0
 
             logging.info('Getting imu poses...'+drive_path)
             for n, f in enumerate(oxts):
@@ -227,18 +228,17 @@ class KittiRawLoader(object):
             # Check images and optionally get SIFT
             if self.get_sift:
                 logging.info('Getting SIFT...'+drive_path)
-            for idx in range(scene_data['N_frames']):
-                img, _, _ = self.load_image(scene_data, idx)
-                if img is None and idx==0:
-                    logging.warning('0 images in %s. Skipped.'%drive_path)
-                    return []
-                if self.get_sift:
-                    # logging.info('Getting sift for frame %d/%d.'%(idx, scene_data['N_frames']))
-                    kp, des = self.sift.detectAndCompute(img, None) ## IMPORTANT: normalize these points
-                    x_all = np.array([p.pt for p in kp])
-                    scene_data['sift_kp'].append(x_all)
-                    scene_data['sift_des'].append(des)
-            if self.get_sift:
+                for idx in range(scene_data['N_frames']):
+                    img, _, _ = self.load_image(scene_data, idx)
+                    if img is None and idx==0:
+                        logging.warning('0 images in %s. Skipped.'%drive_path)
+                        return []
+                    if self.get_sift:
+                        # logging.info('Getting sift for frame %d/%d.'%(idx, scene_data['N_frames']))
+                        kp, des = self.sift.detectAndCompute(img, None) ## IMPORTANT: normalize these points
+                        x_all = np.array([p.pt for p in kp])
+                        scene_data['sift_kp'].append(x_all)
+                        scene_data['sift_des'].append(des)
                 assert scene_data['N_frames']==len(scene_data['sift_kp']), 'scene_data[N_frames]!=len(scene_data[sift_kp]), %d!=%d'%(scene_data['N_frames'], len(scene_data['sift_kp']))
 
             if self.get_X:
