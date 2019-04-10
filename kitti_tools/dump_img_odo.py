@@ -90,21 +90,21 @@ for split in ['train', 'test']:
 
     if args.num_threads == 1:
         for drive_path in tqdm (data_loader.scenes[split]):
-            print(drive_path)
+            print('Dumping ', drive_path)
             sample_name_list = dump_scenes_from_drive(args, split, drive_path)
             if split=='train':
                 sample_name_lists.append(sample_name_list)
             # time.sleep(10)
-    else:
-        with ProcessPool(max_workers=args.num_threads) as pool:
-            tasks = pool.map(dump_scenes_from_drive, [args]*n_scenes[split], [split]*n_scenes[split], data_loader.scenes[split])
-            try:
-                for result in tqdm(tasks.result(), total=n_scenes[split]):
-                    if split=='train':
-                        sample_name_lists.append(result)
-            except KeyboardInterrupt as e:
-                tasks.cancel()
-                raise e
+    # else:
+    #     with ProcessPool(max_workers=args.num_threads) as pool:
+    #         tasks = pool.map(dump_scenes_from_drive, [args]*n_scenes[split], [split]*n_scenes[split], data_loader.scenes[split])
+    #         try:
+    #             for result in tqdm(tasks.result(), total=n_scenes[split]):
+    #                 if split=='train':
+    #                     sample_name_lists.append(result)
+    #         except KeyboardInterrupt as e:
+    #             tasks.cancel()
+    #             raise e
     print("<<< Finished dump %s scenes. "%split, time.time() - seconds)
 
 sample_name_flat_list = [item for sublist in sample_name_lists for item in sublist]
