@@ -2,6 +2,7 @@
 This dump(er) and loader deal with images, lidar points and SIFT for each frame, camera pose and SIFT correspondences between frames.
 ## Requirements
 There are two repos:
+
 [1] [Branch: **deepF**) This repo (https://github.com/eric-yyjau/deepSfm/tree/deep_F) for dumping and loading dataset.
 Install dependeicies by
 > pip install -r requirements.txt
@@ -43,8 +44,8 @@ We dump correspondences for each frame pairs of 1, 2, 3, 5, 8 or 10 frames away 
 ## A sequence loader
 **kitti_instance_RGBD_utils/kitti_tools/kitti_seq_reader.ipynb**
 Run:
-- # [1] Necessary imports
-- # [3] Sequence read - Odo KITTI
+- **[1] Necessary imports**
+- **[3] Sequence read** - **Odo KITTI**
 
 The first four sections (until ## Get two frames) lets you create a sequence loader (of length 2) and visualize basic info of images, overlaid with reprojected lidar points. 
 
