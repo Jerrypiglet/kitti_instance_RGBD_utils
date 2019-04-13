@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import glob
 import torch
 from path import Path
+from imageio import imread
 
 import pykitti  # install using pip install pykitti
 # from kitti_tools.kitti_raw_loader import read_calib_file, transform_from_rot_trans
@@ -411,3 +412,20 @@ def scale_P(P, sx, sy):
     out[0] *= sx
     out[1] *= sy
     return out
+
+def load_as_float(path):
+    return np.array(imread(path)).astype(np.float32)
+
+def load_as_array(path, dtype=None):
+    array = np.load(path)
+    if dtype is not None:
+        return array.astype(dtype)
+    else:
+        return array
+
+def load_sift(dump_dir, frame_nb, ext):
+    sift_file = dump_dir/'sift_{}'.format(frame_nb) + ext
+    sift_array = load_as_array(sift_file, np.float32)
+    sift_kp = sift_array[:, :2] # [N, 2]
+    sift_des = sift_array[:, 2:] # [N, 128]
+    return sift_kp, sift_des

@@ -19,6 +19,7 @@ import os,sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
+import traceback
 
 import coloredlogs, logging
 logging.basicConfig()
@@ -32,6 +33,7 @@ import dsac_tools.utils_misc as utils_misc
 # from utils_good import *
 from glob import glob
 from dsac_tools.utils_misc import crop_or_pad_choice
+from utils_kitti import load_as_float, load_as_array, load_sift
 
 class KittiOdoLoader(object):
     def __init__(self,
@@ -54,10 +56,10 @@ class KittiOdoLoader(object):
         self.cam_ids = cam_ids
         # assert self.cam_ids == ['02'], 'Support left camera only!'
         self.cid_to_num = {'00': 0, '01': 1, '02': 2, '03': 3}
-        # self.train_seqs = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-        # self.test_seqs = [9, 10]
-        self.train_seqs = [0]
-        self.test_seqs = []
+        self.train_seqs = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+        self.test_seqs = [9, 10]
+        # self.train_seqs = [0]
+        # self.test_seqs = []
         self.map_to_raw = {'00': '2011_10_03_drive_0027', '01': '2011_10_03_drive_0042', '02': '2011_10_03_drive_0034', '03': '2011_09_26_drive_0067', \
             '04': '2011_09_30_drive_0016', '05': '2011_09_30_drive_0018', '06': '2011_09_30_drive_0020', '07': '2011_09_30_drive_0027', \
             '08': '2011_09_30_drive_0028', '09': '2011_09_30_drive_0033', '10': '2011_09_30_drive_0034'}
@@ -120,7 +122,7 @@ class KittiOdoLoader(object):
                         assert img_shape == img.shape, 'Inconsistent image shape in seq %s!'%drive_path
                     else:
                         img_shape = img.shape
-            print(img_shape)
+            # print(img_shape)
             scene_data['calibs'] = {'im_shape': [img_shape[0], img_shape[1]], 'zoom_xy': zoom_xy, 'rescale': True if zoom_xy != (1., 1.) else False}
 
             # Get geo params from the RAW dataset calibs
@@ -198,7 +200,7 @@ class KittiOdoLoader(object):
 
         logging.info('Dumping %d samples to %s...'%(scene_data['N_frames'], dump_dir))
         sample_name_list = []
-        sift_des_list = []
+        # sift_des_list = []
         for idx in tqdm(range(scene_data['N_frames'])):
             frame_id = scene_data['frame_ids'][idx]
             assert int(frame_id)==idx
@@ -223,7 +225,7 @@ class KittiOdoLoader(object):
                     np.save(dump_sift_file+'.npy', np.hstack((sample['sift_kp'], sample['sift_des'])))
                 else:
                     saveh5({'sift_kp': sample['sift_kp'], 'sift_des': sample['sift_des']}, dump_sift_file+'.h5')
-                sift_des_list.append(sample['sift_des'])
+                # sift_des_list.append(sample['sift_des'])
 
             sample_name_list.append('%s %s'%(dump_dir[-5:], frame_nb))
 
@@ -239,13 +241,14 @@ class KittiOdoLoader(object):
         # Get SIFT matches
         if self.get_sift:
             delta_ijs = [1, 2, 3, 5, 8, 10]
+            # delta_ijs = [1]
             num_tasks = len(delta_ijs)
-            # num_workers = min(len(delta_ijs), default_number_of_process)
-            num_workers = 1
+            num_workers = min(len(delta_ijs), default_number_of_process)
+            # num_workers = 1
             logging.info('Getting SIFT matches on %d workers for delta_ijs = %s'%(num_workers, ' '.join(str(e) for e in delta_ijs)))
 
             with ProcessPool(max_workers=num_workers) as pool:
-                tasks = pool.map(dump_match_idx, delta_ijs, [scene_data['N_frames']]*num_tasks, [sift_des_list]*num_tasks, \
+                tasks = pool.map(dump_match_idx, delta_ijs, [scene_data['N_frames']]*num_tasks, \
                     [dump_dir]*num_tasks, [self.save_npy]*num_tasks, [self.if_BF_matcher]*num_tasks)
                 try:
                     for _ in tqdm(tasks.result(), total=num_tasks):
@@ -303,8 +306,7 @@ class KittiOdoLoader(object):
         calibs_rects = {'Rtl_gt': Rtl_gt}
         return calibs_rects
 
-def dump_match_idx(delta_ij, N_frames, sift_deses, dump_dir, save_npy, if_BF_matcher):
-    print(delta_ij)
+def dump_match_idx(delta_ij, N_frames, dump_dir, save_npy, if_BF_matcher):
     if if_BF_matcher: # OpenCV sift matcher must be created inside each thread (because it does not support sharing across threads!)
         bf = cv2.BFMatcher(normType=cv2.NORM_L2)
         sift_matcher = bf
@@ -315,10 +317,17 @@ def dump_match_idx(delta_ij, N_frames, sift_deses, dump_dir, save_npy, if_BF_mat
         flann = cv2.FlannBasedMatcher(index_params, search_params)
         sift_matcher = flann
 
-    for ii in range(N_frames-delta_ij):
-        print(ii)
+    for ii in tqdm(range(N_frames-delta_ij)):
         jj = ii + delta_ij
-        all_ij, good_ij = get_sift_match_idx_pair(sift_matcher, sift_deses[ii], sift_deses[jj])
+
+        _, sift_des_ii = load_sift(dump_dir, '%06d'%ii, ext='.npy' if save_npy else '.h5')
+        _, sift_des_jj = load_sift(dump_dir, '%06d'%jj, ext='.npy' if save_npy else '.h5')
+
+        # all_ij, good_ij = get_sift_match_idx_pair(sift_matcher, sift_des_list[ii], sift_des_list[jj])
+        all_ij, good_ij = get_sift_match_idx_pair(sift_matcher, sift_des_ii.copy(), sift_des_jj.copy())
+        if all_ij is None:
+            logging.warning('KNN match failed dumping %s frame %d-%d. Skipping'%(dump_dir, ii, jj))
+            continue
         dump_ij_idx_file = dump_dir/'ij_idx_{}-{}'.format(ii, jj)
         if save_npy:
             np.save(dump_ij_idx_file+'_all_ij.npy', all_ij)
@@ -328,7 +337,11 @@ def dump_match_idx(delta_ij, N_frames, sift_deses, dump_dir, save_npy, if_BF_mat
             saveh5(dump_ij_idx_dict, dump_ij_idx_file+'.h5')
 
 def get_sift_match_idx_pair(sift_matcher, des1, des2):
-    matches = sift_matcher.knnMatch(des1, des2, k=2) # another option is https://github.com/MagicLeapResearch/SuperPointPretrainedNetwork/blob/master/demo_superpoint.py#L309
+    try:
+        matches = sift_matcher.knnMatch(des1, des2, k=2) # another option is https://github.com/MagicLeapResearch/SuperPointPretrainedNetwork/blob/master/demo_superpoint.py#L309
+    except Exception as e:
+        logging.error(traceback.format_exception(*sys.exc_info()))
+        return None, None
     # store all the good matches as per Lowe's ratio test.
     good = []
     all_m = []

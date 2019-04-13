@@ -1,13 +1,15 @@
 import torch
 import numpy as np
 import cv2
-import dsac_tools.utils_misc as utils_misc
-import dsac_tools.utils_geo as utils_geo
-import dsac_tools.utils_vis as utils_vis
+import sys, os
 # from numpy import *
 import scipy
 import random
+from six.moves import xrange
 import operator
+import dsac_tools.utils_misc as utils_misc
+import dsac_tools.utils_geo as utils_geo
+import dsac_tools.utils_vis as utils_vis
 from batch_svd import batch_svd # https://github.com/KinglittleQ/torch-batch-svd.git
 
 def _normalize_XY(X, Y):
@@ -297,7 +299,8 @@ def _sampson_dist(F, X, Y, if_homo=False):
     errors = nominator/denom
     return errors
 
-def _sym_epi_dist(F, X, Y, if_homo=False):
+def _sym_epi_dist(F, X, Y, if_homo=False, clamp_at=None):
+    # Actually sauqred
     if not if_homo:
         X = utils_misc._homo(X)
         Y = utils_misc._homo(Y)
@@ -307,16 +310,47 @@ def _sym_epi_dist(F, X, Y, if_homo=False):
         Fx2 = torch.mm(F.t(), Y.t())
         denom_recp = 1./(Fx1[0]**2 + Fx1[1]**2) + 1./(Fx2[0]**2 + Fx2[1]**2)
     else:
+        # print('-', X.detach().cpu().numpy())
+        # print('-', Y.detach().cpu().numpy())
+        # print('--', F.detach().cpu().numpy())
         nominator = (torch.diagonal(Y@F@X.transpose(1, 2), dim1=1, dim2=2))**2
         Fx1 = torch.matmul(F, X.transpose(1, 2))
+        # print(Fx1.detach().cpu().numpy(), torch.max(Fx1), torch.sum(Fx1))
+        # print(X.detach().cpu().numpy(), torch.max(X), torch.sum(X))
         Fx2 = torch.matmul(F.transpose(1, 2), Y.transpose(1, 2))
-        denom_recp = 1./(Fx1[:, 0]**2 + Fx1[:, 1]**2) + 1./(Fx2[:, 0]**2 + Fx2[:, 1]**2)
+        denom_recp = 1./(Fx1[:, 0]**2 + Fx1[:, 1]**2 + 1e-10) + 1./(Fx2[:, 0]**2 + Fx2[:, 1]**2 + 1e-10)
         # print(nominator.size(), denom.size())
 
     errors = nominator*denom_recp
+    # print('---', nominator.detach().cpu().numpy())
+    # print('---------', denom_recp.detach().cpu().numpy())
+
+    if clamp_at is not None:
+        errors = torch.clamp(errors, max=clamp_at)
+
     return errors
 
-
+def _epi_distance(F, X, Y, if_homo=False):
+    # Not squared. https://arxiv.org/pdf/1706.07886.pdf
+    if not if_homo:
+        X = utils_misc._homo(X)
+        Y = utils_misc._homo(Y)
+    if len(X.size())==2:
+        nominator = torch.diag(Y@F@X.t())
+        Fx1 = torch.mm(F, X.t())
+        Fx2 = torch.mm(F.t(), Y.t())
+        denom_recp_Y_to_FX = 1./torch.sqrt(Fx1[0]**2 + Fx1[1]**2)
+        denom_recp_X_to_FY = 1./torch.sqrt(Fx2[0]**2 + Fx2[1]**2)
+    else:
+        nominator = (torch.diagonal(Y@F@X.transpose(1, 2), dim1=1, dim2=2))**2
+        Fx1 = torch.matmul(F, X.transpose(1, 2))
+        Fx2 = torch.matmul(F.transpose(1, 2), Y.transpose(1, 2))
+        denom_recp_Y_to_FX = 1./torch.sqrt(Fx1[:, 0]**2 + Fx1[:, 1]**2)
+        denom_recp_X_to_FY = 1./torch.sqrt(Fx2[:, 0]**2 + Fx2[:, 1]**2)
+        # print(nominator.size(), denom.size())
+    dist1 = nominator*denom_recp_Y_to_FX
+    dist2 = nominator*denom_recp_X_to_FY
+    return (dist1+dist2)/2., dist1, dist2
 
 
 def _F_to_E(F, K):
@@ -420,7 +454,7 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, depth_thres
 
             R2 = M_inv[:, :3]
             t2 = M_inv[:, 3:4]
-            error_R = utils_geo.rot12_to_angle_error(R2, delta_Rt_gt[:3, :3])
+            error_R = utils_geo.rot12_to_angle_error(R2, delta_Rt_gt[:3, :3]) # [RUI] Both of camera motion
             error_t = utils_geo.vector_angle(t2, delta_Rt_gt[:3, 3:4])
             if show_result:
                 print('Recovered by %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
@@ -640,6 +674,97 @@ def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_t
 
     return mask_index, None
 
+### ==== funcs from the Good Corr paper repo
+def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores):
+    # Use only the top 10% in terms of score to decompose, we can probably
+    # implement a better way of doing this, but this should be just fine.
+    if scores is not None:
+        num_top = len(scores) // 10
+        num_top = max(1, num_top)
+        th = np.sort(scores)[::-1][num_top] ## [RUI] Only evaluating the top 10% corres.
+        mask = scores >= th
+
+        p1s_good = p1s[mask]
+        p2s_good = p2s[mask]
+    else:
+        p1s_good, p2s_good = p1s, p2s
+
+    # Match types
+    # E_hat = E_hat.reshape(3, 3).astype(p1s.dtype)
+    if p1s_good.shape[0] >= 5:
+        # Get the best E just in case we get multipl E from findEssentialMat
+        # num_inlier, R, t, mask_new = cv2.recoverPose(
+        #     E_hat, p1s_good, p2s_good)
+        num_inlier, R, t, mask_new = cv2.recoverPose(E_hat, p1s_good, p2s_good, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
+        # print(delta_Rtij_inv)
+        # print(R, t)
+        try:
+            err_q = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:3, :3])
+            err_t = utils_geo.vector_angle(t, delta_Rtij_inv[:3, 3:4])
+            # err_q, err_t = evaluate_R_t(dR, dt, R, t) # (3, 3) (3,) (3, 3) (3, 1)
+        except:
+            print("Failed in evaluation")
+            print(R)
+            print(t)
+            err_q = 180.
+            err_t = 90.
+    else:
+        err_q = 180.
+        err_t = 90.
+        R = np.eye(3, np.float32)
+        t = np.zeros((3, 1), np.float32)
+
+    # loss_q = np.sqrt(0.5 * (1 - np.cos(err_q)))
+    # loss_t = np.sqrt(1.0 - np.cos(err_t)**2)
+
+    # # Change mask type
+    # mask = mask.flatten().astype(bool)
+
+    # mask_updated = mask.copy()
+    # if mask_new is not None:
+    #     # Change mask type
+    #     mask_new = mask_new.flatten().astype(bool)
+    #     mask_updated[mask] = mask_new
+
+    # return err_q, err_t, loss_q, loss_t, np.sum(num_inlier), mask_updated
+    return np.hstack((R, t)), (err_q, err_t)
+
+def goodCorr_write_metrics_summary(writer, dict_of_lists, task, n_iter):
+    measure_list = list(dict_of_lists.keys())
+    test_list = list(dict_of_lists[measure_list[0]].keys())
+    assert 'epi_dists' in measure_list
+
+    for _tag in test_list:
+        epi_dists_list = dict_of_lists['epi_dists'][_tag]
+        epi_dists = np.stack(epi_dists_list, axis=0).flatten()
+        writer.add_scalar(task+'-ErrorComputation-epi_dists/%s-1'%(_tag), np.sum(epi_dists < 1.)/np.shape(epi_dists)[0], n_iter)
+        writer.add_scalar(task+'-ErrorComputation-epi_dists/%s-0.1'%(_tag), np.sum(epi_dists < 0.1)/np.shape(epi_dists)[0], n_iter)
+
+        for _sub_tag in measure_list:
+            if _sub_tag != 'epi_dists':
+                writer.add_scalar(task+'-ErrorComputation-median/%s-%s'%(_sub_tag, _tag), np.median(dict_of_lists[_sub_tag][_tag]), n_iter)
+
+        ths = np.arange(7) * 5
+        cur_err_q = np.array(dict_of_lists["err_q"][_tag])
+        cur_err_t = np.array(dict_of_lists["err_t"][_tag])
+        # Get histogram
+        q_acc_hist, _ = np.histogram(cur_err_q, ths)
+        t_acc_hist, _ = np.histogram(cur_err_t, ths)
+        qt_acc_hist, _ = np.histogram(np.maximum(cur_err_q, cur_err_t), ths)
+        num_pair = float(len(cur_err_q))
+        q_acc_hist = q_acc_hist.astype(float) / num_pair
+        t_acc_hist = t_acc_hist.astype(float) / num_pair
+        qt_acc_hist = qt_acc_hist.astype(float) / num_pair
+        q_acc = np.cumsum(q_acc_hist)
+        t_acc = np.cumsum(t_acc_hist)
+        qt_acc = np.cumsum(qt_acc_hist)
+        # Store return val
+        if _tag == "ours":
+            ret_val = np.mean(qt_acc[:4])  # 1 == 5
+        for _idx_th in xrange(1, len(ths)):
+            writer.add_scalar(task+'-ErrorComputation/acc_q_auc{}_{}'.format(ths[_idx_th], _tag), np.mean(q_acc[:_idx_th]), n_iter)
+            writer.add_scalar(task+'-ErrorComputation/acc_t_auc{}_{}'.format(ths[_idx_th], _tag), np.mean(t_acc[:_idx_th]), n_iter)
+            writer.add_scalar(task+'-ErrorComputation/acc_qt_auc{}_{}'.format(ths[_idx_th], _tag), np.mean(qt_acc[:_idx_th]), n_iter)
 
 # def compute_fundamental_scipy(x1,x2):
 #     from scipy import linalg

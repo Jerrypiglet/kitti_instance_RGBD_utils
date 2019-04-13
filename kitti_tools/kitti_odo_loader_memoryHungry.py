@@ -46,10 +46,10 @@ class KittiOdoLoader(object):
         self.cam_ids = cam_ids
         # assert self.cam_ids == ['02'], 'Support left camera only!'
         self.cid_to_num = {'00': 0, '01': 1, '02': 2, '03': 3}
-        # self.train_seqs = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-        # self.test_seqs = [9, 10]
-        self.train_seqs = [4]
-        self.test_seqs = [10]
+        self.train_seqs = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+        self.test_seqs = [9, 10]
+        # self.train_seqs = [4]
+        # self.test_seqs = [10]
         self.map_to_raw = {'00': '2011_10_03_drive_0027', '01': '2011_10_03_drive_0042', '02': '2011_10_03_drive_0034', '03': '2011_09_26_drive_0067', \
             '04': '2011_09_30_drive_0016', '05': '2011_09_30_drive_0018', '06': '2011_09_30_drive_0020', '07': '2011_09_30_drive_0027', \
             '08': '2011_09_30_drive_0028', '09': '2011_09_30_drive_0033', '10': '2011_09_30_drive_0034'}
