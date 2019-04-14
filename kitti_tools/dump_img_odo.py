@@ -27,7 +27,7 @@ from torch.utils.data import Dataset
 import argparse
 from pebble import ProcessPool
 import multiprocessing as mp
-ratio_CPU = 0.5
+# ratio_CPU = 0.5
 # default_number_of_process = int(ratio_CPU * mp.cpu_count())
 default_number_of_process = 1 # to prevent congestion; SIFT and matrix operations in recfity points already takes advantage of multi-cores
 import time

@@ -352,6 +352,28 @@ def _epi_distance(F, X, Y, if_homo=False):
     dist2 = nominator*denom_recp_X_to_FY
     return (dist1+dist2)/2., dist1, dist2
 
+def epi_distance_np(F, X, Y, if_homo=False):
+    # Not squared. https://arxiv.org/pdf/1706.07886.pdf
+    if not if_homo:
+        X = utils_misc.homo_np(X)
+        Y = utils_misc.homo_np(Y)
+    if len(X.shape)==2:
+        nominator = (np.diag(Y@F@X.T))**2
+        Fx1 = F @ X.T
+        Fx2 = F.T @ Y.T
+        denom_recp_Y_to_FX = 1./np.sqrt(Fx1[0]**2 + Fx1[1]**2)
+        denom_recp_X_to_FY = 1./np.sqrt(Fx2[0]**2 + Fx2[1]**2)
+    else:
+        nominator = (np.diagonal(np.transpose(Y@F@X, (1, 2)), axis=1, axis2=2))**2
+        Fx1 = F @np.transpose(X, (1, 2))
+        Fx2 = np.transpose(F, (1, 2)) @ np.transpose(Y, (1, 2))
+        denom_recp_Y_to_FX = 1./np.sqrt(Fx1[:, 0]**2 + Fx1[:, 1]**2)
+        denom_recp_X_to_FY = 1./np.sqrt(Fx2[:, 0]**2 + Fx2[:, 1]**2)
+        # print(nominator.size(), denom.size())
+    dist1 = nominator*denom_recp_Y_to_FX
+    dist2 = nominator*denom_recp_X_to_FY
+    return (dist1+dist2)/2., dist1, dist2
+
 
 def _F_to_E(F, K):
     E = torch.matmul(torch.matmul(K.t(), F), K)
@@ -362,8 +384,18 @@ def _F_to_E(F, K):
     # print(E_110.numpy())
     return E_110
 
-def E_to_F(E, K):
-    F = torch.matmul(torch.matmul(torch.inverse(K).t(), E), torch.inverse(K))
+def _E_to_F(E, K):
+    if len(E.size())==2:
+        F = torch.matmul(torch.matmul(torch.inverse(K).t(), E), torch.inverse(K))
+    else:
+        F = torch.inverse(K).transpose(1, 2) @ E @ torch.inverse(K)
+    return F
+
+def E_to_F_np(E, K):
+    if len(E.shape)==2:
+        F = np.linalg.inv(K).T @ E @ np.linalg.inv(K)
+    else:
+        np.transpose(np.linalg.inv(K), (1, 2)) @ E @ np.linalg.inv(K)
     return F
 
 def _get_M2s(E):
@@ -739,6 +771,7 @@ def goodCorr_write_metrics_summary(writer, dict_of_lists, task, n_iter):
         epi_dists = np.stack(epi_dists_list, axis=0).flatten()
         writer.add_scalar(task+'-ErrorComputation-epi_dists/%s-1'%(_tag), np.sum(epi_dists < 1.)/np.shape(epi_dists)[0], n_iter)
         writer.add_scalar(task+'-ErrorComputation-epi_dists/%s-0.1'%(_tag), np.sum(epi_dists < 0.1)/np.shape(epi_dists)[0], n_iter)
+        # print('=========', _tag, np.sum(epi_dists < 0.1)/np.shape(epi_dists)[0], np.sum(epi_dists < 1.)/np.shape(epi_dists)[0])
 
         for _sub_tag in measure_list:
             if _sub_tag != 'epi_dists':

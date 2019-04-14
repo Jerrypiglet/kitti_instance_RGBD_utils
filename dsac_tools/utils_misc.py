@@ -57,7 +57,7 @@ def homo_np(x):
     # input: x [N, D]
     # output: x_homo [N, D+1]
     N = x.shape[0]
-    x_homo = np.hstack((x, np.ones((N, 1))))
+    x_homo = np.hstack((x, np.ones((N, 1), dtype=x.dtype)))
     return x_homo
 
 def de_homo_np(x_homo):

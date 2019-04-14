@@ -156,3 +156,103 @@ def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader=None, visualiz
     else:
         val_inds = utils_misc.within(x1[:, 0], x1[:, 1], im_shape[1], im_shape[0])
     return val_inds, x1
+
+def show_epipolar_opencv(x1, x2, img1_rgb, img2_rgb, F_gt, colors=None):
+    lines2 = cv2.computeCorrespondEpilines(x1.reshape(-1,1,2).astype(int), 1,F_gt)
+    lines2 = lines2.reshape(-1,3)
+    img3,img4, colors = drawlines(np.array(img2_rgb).copy(), np.array(img1_rgb).copy(), lines2, x2.astype(int), x1.astype(int), colors=colors)
+    # plt.figure(figsize=(30, 8))
+    # # plt.subplot(121)
+    # plt.imshow(img4)
+    # plt.subplot(122),
+    plt.figure(figsize=(30, 8))
+    plt.imshow(img3)
+    plt.show()
+    return colors
+
+
+def show_epipolar_rui(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
+    N_points = x1.shape[0]
+    x1_homo = utils_misc.homo_np(x1)
+    x2_homo = utils_misc.homo_np(x2)
+    right_P = np.matmul(F_gt, x1_homo.T)
+    right_epipolar_x = np.tile(np.array([[0], [1]]), N_points) * im_shape[1]
+    # Using the eqn of line: ax+by+c=0; y = (-c-ax)/b, http://ai.stanford.edu/~mitul/cs223b/draw_epipolar.m
+    right_epipolar_y = (-right_P[2:3, :] - right_P[0:1, :] * right_epipolar_x) / right_P[1:2, :]
+
+    colors = np.random.rand(x2.shape[0])
+    plt.figure(figsize=(30, 8))
+    plt.subplot(121)
+    plt.imshow(img1_rgb, cmap=None if len(img1_rgb.shape)==3 else plt.get_cmap('gray'))
+    plt.scatter(x1[:, 0], x1[:, 1], s=50, c=colors, edgecolors='w')
+    plt.subplot(122)
+    # plt.figure(figsize=(30, 8))
+    plt.imshow(img2_rgb, cmap=None if len(img2_rgb.shape)==3 else plt.get_cmap('gray'))
+    plt.plot(right_epipolar_x, right_epipolar_y)
+    plt.scatter(x2[:, 0], x2[:, 1], s=50, c=colors, edgecolors='w')
+    plt.xlim(0, im_shape[1]-1)
+    plt.ylim(im_shape[0]-1, 0)
+    plt.show()
+
+def show_epipolar_rui_gtEst(x1, x2, img1_rgb, img2_rgb, F_gt, F_est, im_shape, title_append=''):
+    N_points = x1.shape[0]
+    x1_homo = utils_misc.homo_np(x1)
+    x2_homo = utils_misc.homo_np(x2)
+    right_P = np.matmul(F_gt, x1_homo.T)
+    right_epipolar_x = np.tile(np.array([[0], [1]]), N_points) * im_shape[1]
+    # Using the eqn of line: ax+by+c=0; y = (-c-ax)/b, http://ai.stanford.edu/~mitul/cs223b/draw_epipolar.m
+    right_epipolar_y = (-right_P[2:3, :] - right_P[0:1, :] * right_epipolar_x) / right_P[1:2, :]
+
+    # colors = get_spaced_colors(x2.shape[0])
+    # colors = np.random.random((x2.shape[0], 3))
+    plt.figure(figsize=(60, 8))
+    plt.imshow(img2_rgb, cmap=None if len(img2_rgb.shape)==3 else plt.get_cmap('gray'))
+
+    plt.plot(right_epipolar_x, right_epipolar_y, 'b', linewidth=1)
+    plt.scatter(x2[:, 0], x2[:, 1], s=50, edgecolors='w')
+
+    right_P = np.matmul(F_est, x1_homo.T)
+    right_epipolar_x = np.tile(np.array([[0], [1]]), N_points) * im_shape[1]
+    right_epipolar_y = (-right_P[2:3, :] - right_P[0:1, :] * right_epipolar_x) / right_P[1:2, :]
+    plt.plot(right_epipolar_x, right_epipolar_y, 'r', linewidth=1)
+
+    plt.xlim(0, im_shape[1]-1)
+    plt.ylim(im_shape[0]-1, 0)
+    plt.title('Blue lines for GT F; Red lines for est. F. -- '+title_append)
+    plt.show()
+
+def show_epipolar_normalized(x1, x2, img1_rgb, img2_rgb, F_gt, im_shape):
+    N_points = x1.shape[0]
+    x1_homo = utils_misc.homo_np(x1)
+    x2_homo = utils_misc.homo_np(x2)
+    right_P = np.matmul(F_gt, x1_homo.T)
+    right_epipolar_x = np.tile(np.array([[-1.], [1.]]), N_points) * im_shape[1]
+    # Using the eqn of line: ax+by+c=0; y = (-c-ax)/b, http://ai.stanford.edu/~mitul/cs223b/draw_epipolar.m
+    right_epipolar_y = (-right_P[2:3, :] - right_P[0:1, :] * right_epipolar_x) / right_P[1:2, :]
+
+    colors = np.random.rand(x2.shape[0])
+    plt.figure(figsize=(30, 8))
+    plt.subplot(121)
+#     plt.imshow(img1_rgb)
+#     plt.scatter(x1[:, 0]*f+W/2., x1[:, 1]*f+H/2., s=50, c=colors, edgecolors='w')
+    plt.scatter(x1[:, 0], x1[:, 1], s=50, c=colors, edgecolors='w')
+    plt.xlim(-im_shape[1], im_shape[1])
+    plt.ylim(im_shape[0], -im_shape[0])
+    plt.gca().set_aspect('equal', adjustable='box')
+    
+    plt.subplot(122)
+#     plt.imshow(img2_rgb)
+    plt.plot(right_epipolar_x, right_epipolar_y)
+    plt.scatter(x2[:, 0], x2[:, 1], s=50, c=colors, edgecolors='w')
+#     plt.axis('equal')
+    plt.xlim(-im_shape[1], im_shape[1])
+    plt.ylim(im_shape[0], -im_shape[0])
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.show()
+
+def get_spaced_colors(n):
+    max_value = 16581375 #255**3
+    interval = int(max_value / (n-1))
+    colors = [hex(I)[2:].zfill(6) for I in range(0, max_value, interval)]
+    
+    return np.stack([np.array([int(i[:2], 16), int(i[2:4], 16), int(i[4:], 16)]) for i in colors]) / 255.
