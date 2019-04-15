@@ -53,3 +53,8 @@ The first four sections (until ## Get two frames) lets you create a sequence loa
 <!--## Loader
 Run the sections [1] and [3] in `kitti_seq_reader.ipynb` for a demo of sequential read. It will throw warnings if certain files are not found. Also you can run the second box in [3] for a visualization of the image, lidar points, and SIFT matches.
 -->
+
+## Run training
+> export KITTI_UTILS_PATH='/home/ruizhu/Documents/Projects/kitti_instance_RGBD_utils'
+
+> export SHAPER_MODELS_PATH='/home/ruizhu/Documents/Projects/kitti_instance_RGBD_utils/deepSfm_ori/models/shaper/shaper/models'

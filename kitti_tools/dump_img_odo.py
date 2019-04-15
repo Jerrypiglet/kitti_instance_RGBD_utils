@@ -119,7 +119,8 @@ with open(args_dump_root / 'train.txt', 'w') as tf:
     with open(args_dump_root / 'val.txt', 'w') as vf:
         for pr in tqdm(sample_name_flat_list):
             # corresponding_dirs = args_dump_root.dirs('{}*'.format(pr)) # e.g. [Path('./data/kitti_dump/2011_09_30_drive_0033_sync_03'), Path('./data/kitti_dump/2011_09_30_drive_0033_sync_02')]
-            if np.random.random() < val_ratio:
+            # if np.random.random() < val_ratio:
+            if pr[:2] in ['06', '07', '08', '09', '10']:
                 vf.write('{}\n'.format(pr))
             else:
                 tf.write('{}\n'.format(pr))

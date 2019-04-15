@@ -336,13 +336,13 @@ def _epi_distance(F, X, Y, if_homo=False):
         X = utils_misc._homo(X)
         Y = utils_misc._homo(Y)
     if len(X.size())==2:
-        nominator = torch.diag(Y@F@X.t())
+        nominator = torch.diag(Y@F@X.t()).abs()
         Fx1 = torch.mm(F, X.t())
         Fx2 = torch.mm(F.t(), Y.t())
         denom_recp_Y_to_FX = 1./torch.sqrt(Fx1[0]**2 + Fx1[1]**2)
         denom_recp_X_to_FY = 1./torch.sqrt(Fx2[0]**2 + Fx2[1]**2)
     else:
-        nominator = (torch.diagonal(Y@F@X.transpose(1, 2), dim1=1, dim2=2))**2
+        nominator = (torch.diagonal(Y@F@X.transpose(1, 2), dim1=1, dim2=2)).abs()
         Fx1 = torch.matmul(F, X.transpose(1, 2))
         Fx2 = torch.matmul(F.transpose(1, 2), Y.transpose(1, 2))
         denom_recp_Y_to_FX = 1./torch.sqrt(Fx1[:, 0]**2 + Fx1[:, 1]**2)
@@ -358,13 +358,13 @@ def epi_distance_np(F, X, Y, if_homo=False):
         X = utils_misc.homo_np(X)
         Y = utils_misc.homo_np(Y)
     if len(X.shape)==2:
-        nominator = (np.diag(Y@F@X.T))**2
+        nominator = np.abs(np.diag(Y@F@X.T))
         Fx1 = F @ X.T
         Fx2 = F.T @ Y.T
         denom_recp_Y_to_FX = 1./np.sqrt(Fx1[0]**2 + Fx1[1]**2)
         denom_recp_X_to_FY = 1./np.sqrt(Fx2[0]**2 + Fx2[1]**2)
     else:
-        nominator = (np.diagonal(np.transpose(Y@F@X, (1, 2)), axis=1, axis2=2))**2
+        nominator = np.abs(np.diagonal(np.transpose(Y@F@X, (1, 2)), axis=1, axis2=2))
         Fx1 = F @np.transpose(X, (1, 2))
         Fx2 = np.transpose(F, (1, 2)) @ np.transpose(Y, (1, 2))
         denom_recp_Y_to_FX = 1./np.sqrt(Fx1[:, 0]**2 + Fx1[:, 1]**2)
@@ -731,8 +731,9 @@ def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores):
         # print(delta_Rtij_inv)
         # print(R, t)
         try:
-            err_q = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:3, :3])
-            err_t = utils_geo.vector_angle(t, delta_Rtij_inv[:3, 3:4])
+            R_cam, t_cam = utils_geo.invert_Rt(R, t)
+            err_q = utils_geo.rot12_to_angle_error(R_cam, delta_Rtij_inv[:3, :3])
+            err_t = utils_geo.vector_angle(t_cam, delta_Rtij_inv[:3, 3:4])
             # err_q, err_t = evaluate_R_t(dR, dt, R, t) # (3, 3) (3,) (3, 3) (3, 1)
         except:
             print("Failed in evaluation")

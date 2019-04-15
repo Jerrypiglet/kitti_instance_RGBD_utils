@@ -47,7 +47,7 @@ def get_cmap(n, name='hsv'):
     RGB color; the keyword argument name must be a standard mpl colormap name.'''
     return plt.cm.get_cmap(name, n)
 
-def draw_corr(im1, im2, x1, x2, linewidth=2):
+def draw_corr(im1, im2, x1, x2, linewidth=2, title=''):
     # im1 = img1_rgb
     # im2 = img2_rgb
     # x1 = x1_sample
@@ -61,6 +61,8 @@ def draw_corr(im1, im2, x1, x2, linewidth=2):
     plt.figure(figsize=(60, 8))
     plt.imshow(im12, cmap=None if len(im12.shape)==3 else plt.get_cmap('gray'))
     plt.plot(np.vstack((x1[:, 0], x2_copy[:, 0])), np.vstack((x1[:, 1], x2_copy[:, 1])), marker='o', linewidth=linewidth)
+    if title!='':
+        plt.title(title)
     plt.show()
 
 def draw_corr_widths(im1, im2, x1, x2, linewidth, title='', rescale=True, scale=1.):
@@ -208,13 +210,13 @@ def show_epipolar_rui_gtEst(x1, x2, img1_rgb, img2_rgb, F_gt, F_est, im_shape, t
     plt.figure(figsize=(60, 8))
     plt.imshow(img2_rgb, cmap=None if len(img2_rgb.shape)==3 else plt.get_cmap('gray'))
 
-    plt.plot(right_epipolar_x, right_epipolar_y, 'b', linewidth=1)
+    plt.plot(right_epipolar_x, right_epipolar_y, 'b', linewidth=0.5)
     plt.scatter(x2[:, 0], x2[:, 1], s=50, edgecolors='w')
 
     right_P = np.matmul(F_est, x1_homo.T)
     right_epipolar_x = np.tile(np.array([[0], [1]]), N_points) * im_shape[1]
     right_epipolar_y = (-right_P[2:3, :] - right_P[0:1, :] * right_epipolar_x) / right_P[1:2, :]
-    plt.plot(right_epipolar_x, right_epipolar_y, 'r', linewidth=1)
+    plt.plot(right_epipolar_x, right_epipolar_y, 'r', linewidth=0.5)
 
     plt.xlim(0, im_shape[1]-1)
     plt.ylim(im_shape[0]-1, 0)

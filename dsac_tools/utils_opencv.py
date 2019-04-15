@@ -127,13 +127,17 @@ def sample_and_check(x1, x2, img1_rgb, img2_rgb, img1_rgb_np, img2_rgb_np, F_gt,
     return random_idx, x1_sample, x2_sample, colors
 
 def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1, show_result=True, c=False, \
-    if_normalized=False, method_app='', E_given=None):
+    if_normalized=False, method_app='', E_given=None, RANSAC=True):
     # Computes scene motion from x1 to x2
     # Compare with OpenCV with refs from:
     ## https://github.com/vcg-uvic/learned-correspondence-release/blob/16bef8a0293c042c0bd42f067d7597b8e84ef51a/tests.py#L232
     ## https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
     ## http://answers.opencv.org/question/90070/findessentialmat-or-decomposeessentialmat-do-not-work-correctly/
     method_name = '5 point'+method_app if five_point else '8 point'+method_app
+    if RANSAC:
+        sample_method = cv2.RANSAC
+    else:
+        sample_method = None
 
     if show_result:
         print('>>>>>>>>>>>>>>>> Running OpenCV camera pose estimation... [%s] ---------------'%method_name)
@@ -142,9 +146,9 @@ def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold
     if E_given is None:
         if five_point:
             if if_normalized:
-                E_5point, mask1 = cv2.findEssentialMat(x1, x2, method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+                E_5point, mask1 = cv2.findEssentialMat(x1, x2, method=sample_method, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
             else:
-                E_5point, mask1 = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=cv2.RANSAC, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+                E_5point, mask1 = cv2.findEssentialMat(x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), method=sample_method, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
             # x1_norm = cv2.undistortPoints(np.expand_dims(x1, axis=1), cameraMatrix=K, distCoeffs=None) 
             # x2_norm = cv2.undistortPoints(np.expand_dims(x2, axis=1), cameraMatrix=K, distCoeffs=None)
             # E_5point, mask = cv2.findEssentialMat(x1_norm, x2_norm, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
@@ -153,16 +157,25 @@ def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold
             E_8point = K.T @ F_8point @ K
             U,S,V = np.linalg.svd(E_8point)
             E_8point = U @ np.diag([1., 1., 0.]) @ V
+            mask1 = np.ones((x1.shape[0], 1), dtype=np.uint8)
+            print('8 pppppoint!')
 
         E_recover = E_5point if five_point else E_8point
     else:
         E_recover = E_given
         print('Use given E @recover_camera_opencv')
+        mask1 = np.ones((x1.shape[0], 1), dtype=np.uint8)
 
     if if_normalized:
-        points, R, t, mask2 = cv2.recoverPose(E_recover, x1, x2, mask=mask1.copy()) # returns the inliers (subset of corres that pass the Cheirality check)
+        if E_given is None:
+            points, R, t, mask2 = cv2.recoverPose(E_recover, x1, x2, mask=mask1.copy()) # returns the inliers (subset of corres that pass the Cheirality check)
+        else:
+            points, R, t, mask2 = cv2.recoverPose(E_recover.astype(np.float64), x1, x2) # returns the inliers (subset of corres that pass the Cheirality check)
     else:
-        points, R, t, mask2 = cv2.recoverPose(E_recover, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), mask=mask1.copy())
+        if E_given is None:
+            points, R, t, mask2 = cv2.recoverPose(E_recover, x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]), mask=mask1.copy())
+        else:
+            points, R, t, mask2 = cv2.recoverPose(E_recover.astype(np.float64), x1, x2, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
 
     # print(R, t)
     # else:
@@ -170,10 +183,10 @@ def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold
     if show_result:
         print('# (%d, %d)/%d inliers from OpenCV.'%(np.sum(mask1!=0), np.sum(mask2!=0), mask2.shape[0]))
 
-    # R_cam, t_cam = utils_geo.invert_Rt(R, t)
+    R_cam, t_cam = utils_geo.invert_Rt(R, t)
 
-    error_R = utils_geo.rot12_to_angle_error(R, delta_Rtij_inv[:3, :3])
-    error_t = utils_geo.vector_angle(t, delta_Rtij_inv[:3, 3:4])
+    error_R = utils_geo.rot12_to_angle_error(R_cam, delta_Rtij_inv[:3, :3])
+    error_t = utils_geo.vector_angle(t_cam, delta_Rtij_inv[:3, 3:4])
     if show_result:
         print('Recovered by OpenCV %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
         print(np.hstack((R, t)))
