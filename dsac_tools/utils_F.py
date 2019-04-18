@@ -376,17 +376,53 @@ def epi_distance_np(F, X, Y, if_homo=False):
     # return (dist1+dist2)/2., dist1, dist2
     return dist3, dist1, dist2
 
-def epi_distance_np_deepF(pts, F):
-    pts1 = pts2hom(pts[:,:2])
-    pts2 = pts2hom(pts[:,2:])
+# def epi_distance_np_deepF(pts, F):
+#     pts1 = pts2hom(pts[:,:2])
+#     pts2 = pts2hom(pts[:,2:])
 
-    l2 = np.dot(F.T  , pts1.T)
-    l1 = np.dot(F, pts2.T)
+#     l2 = np.dot(F.T  , pts1.T)
+#     l1 = np.dot(F, pts2.T)
 
-    dd = np.sum(l2.T*pts2,1)
+#     dd = np.sum(l2.T*pts2,1)
 
-    d = np.abs(dd)*(1.0/np.sqrt(l1[0,:]**2 + l1[1,:]**2) + 1.0/np.sqrt(l2[0,:]**2 + l2[1,:]**2))
+#     d = np.abs(dd)*(1.0/np.sqrt(l1[0,:]**2 + l1[1,:]**2) + 1.0/np.sqrt(l2[0,:]**2 + l2[1,:]**2))
 
+#     return d
+
+def compute_epi_residual(pts1, pts2, F, clamp_at=0.5):
+    l1 = torch.bmm(pts2, F)
+    l2 = torch.bmm(pts1, F.permute(0,2,1))
+
+    dd = ((pts1*l1).sum(2))
+
+    d = dd.abs()*(1/(l1[:,:,:2].norm(2,2)) + 1/(l2[:,:,:2].norm(2,2)))
+
+    dd = d.pow(2)
+
+    out = torch.clamp(d, max=clamp_at)
+
+    return out
+
+# def compute_epi_residual(pts1, pts2, F, clamp_at=0.5):
+#     l1 = torch.bmm(pts2, F)
+#     l2 = torch.bmm(pts1, F.permute(0,2,1))
+#     epi = 1e-10
+
+#     dd = ((pts1*l1).sum(2)).abs()
+
+#     dnom = 1./(l1[:,:,0]**2 + l1[:,:,1]**2 + epi) + 1/(l2[:,:,0]**2 + l2[:,:,1]**2 + epi)   
+
+#     out = torch.clamp(dd * torch.sqrt(dnom), max=clamp_at)
+
+#     return out
+
+def compute_epi_residual_non_rob(pts1, pts2, F):
+    l1 = torch.bmm(pts2, F)
+    l2 = torch.bmm(pts1, F.permute(0,2,1))
+
+    dd = ((pts1*l1).sum(2))
+
+    d = dd.abs()*(1/(l1[:,:,:2].norm(2,2)) + 1/(l2[:,:,:2].norm(2,2)))
 
     return d
 
@@ -764,42 +800,7 @@ def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores):
     return np.hstack((R, t)), (err_q, err_t)
 
 
-def compute_epi_residual(pts1, pts2, F, clamp_at=0.5):
-    l1 = torch.bmm(pts2, F)
-    l2 = torch.bmm(pts1, F.permute(0,2,1))
 
-    dd = ((pts1*l1).sum(2))
-
-    d = dd.abs()*(1/(l1[:,:,:2].norm(2,2)) + 1/(l2[:,:,:2].norm(2,2)))
-
-    dd = d.pow(2)
-
-    out = torch.clamp(d, max=clamp_at)
-
-    return out
-
-# def compute_epi_residual(pts1, pts2, F, clamp_at=0.5):
-#     l1 = torch.bmm(pts2, F)
-#     l2 = torch.bmm(pts1, F.permute(0,2,1))
-#     epi = 1e-10
-
-#     dd = ((pts1*l1).sum(2)).abs()
-
-#     dnom = 1./(l1[:,:,0]**2 + l1[:,:,1]**2 + epi) + 1/(l2[:,:,0]**2 + l2[:,:,1]**2 + epi)   
-
-#     out = torch.clamp(dd * torch.sqrt(dnom), max=clamp_at)
-
-#     return out
-
-def compute_epi_residual_non_rob(pts1, pts2, F):
-    l1 = torch.bmm(pts2, F)
-    l2 = torch.bmm(pts1, F.permute(0,2,1))
-
-    dd = ((pts1*l1).sum(2))
-
-    d = dd.abs()*(1/(l1[:,:,:2].norm(2,2)) + 1/(l2[:,:,:2].norm(2,2)))
-
-    return d
 # def compute_fundamental_scipy(x1,x2):
 #     from scipy import linalg
 #     """    Computes the fundamental matrix from corresponding points 
