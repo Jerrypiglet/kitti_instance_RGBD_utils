@@ -370,9 +370,25 @@ def epi_distance_np(F, X, Y, if_homo=False):
         denom_recp_Y_to_FX = 1./np.sqrt(Fx1[:, 0]**2 + Fx1[:, 1]**2)
         denom_recp_X_to_FY = 1./np.sqrt(Fx2[:, 0]**2 + Fx2[:, 1]**2)
         # print(nominator.size(), denom.size())
-    dist1 = nominator*denom_recp_Y_to_FX
-    dist2 = nominator*denom_recp_X_to_FY
-    return (dist1+dist2)/2., dist1, dist2
+    dist1 = nominator * denom_recp_Y_to_FX
+    dist2 = nominator * denom_recp_X_to_FY
+    dist3 = nominator * (denom_recp_Y_to_FX + denom_recp_X_to_FY)
+    # return (dist1+dist2)/2., dist1, dist2
+    return dist3, dist1, dist2
+
+def epi_distance_np_deepF(pts, F):
+    pts1 = pts2hom(pts[:,:2])
+    pts2 = pts2hom(pts[:,2:])
+
+    l2 = np.dot(F.T  , pts1.T)
+    l1 = np.dot(F, pts2.T)
+
+    dd = np.sum(l2.T*pts2,1)
+
+    d = np.abs(dd)*(1.0/np.sqrt(l1[0,:]**2 + l1[1,:]**2) + 1.0/np.sqrt(l2[0,:]**2 + l2[1,:]**2))
+
+
+    return d
 
 
 def _F_to_E(F, K):
@@ -728,8 +744,6 @@ def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores):
         # num_inlier, R, t, mask_new = cv2.recoverPose(
         #     E_hat, p1s_good, p2s_good)
         num_inlier, R, t, mask_new = cv2.recoverPose(E_hat, p1s_good, p2s_good, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
-        # print(delta_Rtij_inv)
-        # print(R, t)
         try:
             R_cam, t_cam = utils_geo.invert_Rt(R, t)
             err_q = utils_geo.rot12_to_angle_error(R_cam, delta_Rtij_inv[:3, :3])
@@ -747,59 +761,45 @@ def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores):
         R = np.eye(3, np.float32)
         t = np.zeros((3, 1), np.float32)
 
-    # loss_q = np.sqrt(0.5 * (1 - np.cos(err_q)))
-    # loss_t = np.sqrt(1.0 - np.cos(err_t)**2)
-
-    # # Change mask type
-    # mask = mask.flatten().astype(bool)
-
-    # mask_updated = mask.copy()
-    # if mask_new is not None:
-    #     # Change mask type
-    #     mask_new = mask_new.flatten().astype(bool)
-    #     mask_updated[mask] = mask_new
-
-    # return err_q, err_t, loss_q, loss_t, np.sum(num_inlier), mask_updated
     return np.hstack((R, t)), (err_q, err_t)
 
-def goodCorr_write_metrics_summary(writer, dict_of_lists, task, n_iter):
-    measure_list = list(dict_of_lists.keys())
-    test_list = list(dict_of_lists[measure_list[0]].keys())
-    assert 'epi_dists' in measure_list
 
-    for _tag in test_list:
-        epi_dists_list = dict_of_lists['epi_dists'][_tag]
-        epi_dists = np.stack(epi_dists_list, axis=0).flatten()
-        writer.add_scalar(task+'-ErrorComputation-epi_dists/%s-1'%(_tag), np.sum(epi_dists < 1.)/np.shape(epi_dists)[0], n_iter)
-        writer.add_scalar(task+'-ErrorComputation-epi_dists/%s-0.1'%(_tag), np.sum(epi_dists < 0.1)/np.shape(epi_dists)[0], n_iter)
-        # print('=========', _tag, np.sum(epi_dists < 0.1)/np.shape(epi_dists)[0], np.sum(epi_dists < 1.)/np.shape(epi_dists)[0])
+def compute_epi_residual(pts1, pts2, F, clamp_at=0.5):
+    l1 = torch.bmm(pts2, F)
+    l2 = torch.bmm(pts1, F.permute(0,2,1))
 
-        for _sub_tag in measure_list:
-            if _sub_tag != 'epi_dists':
-                writer.add_scalar(task+'-ErrorComputation-median/%s-%s'%(_sub_tag, _tag), np.median(dict_of_lists[_sub_tag][_tag]), n_iter)
+    dd = ((pts1*l1).sum(2))
 
-        ths = np.arange(7) * 5
-        cur_err_q = np.array(dict_of_lists["err_q"][_tag])
-        cur_err_t = np.array(dict_of_lists["err_t"][_tag])
-        # Get histogram
-        q_acc_hist, _ = np.histogram(cur_err_q, ths)
-        t_acc_hist, _ = np.histogram(cur_err_t, ths)
-        qt_acc_hist, _ = np.histogram(np.maximum(cur_err_q, cur_err_t), ths)
-        num_pair = float(len(cur_err_q))
-        q_acc_hist = q_acc_hist.astype(float) / num_pair
-        t_acc_hist = t_acc_hist.astype(float) / num_pair
-        qt_acc_hist = qt_acc_hist.astype(float) / num_pair
-        q_acc = np.cumsum(q_acc_hist)
-        t_acc = np.cumsum(t_acc_hist)
-        qt_acc = np.cumsum(qt_acc_hist)
-        # Store return val
-        if _tag == "ours":
-            ret_val = np.mean(qt_acc[:4])  # 1 == 5
-        for _idx_th in xrange(1, len(ths)):
-            writer.add_scalar(task+'-ErrorComputation/acc_q_auc{}_{}'.format(ths[_idx_th], _tag), np.mean(q_acc[:_idx_th]), n_iter)
-            writer.add_scalar(task+'-ErrorComputation/acc_t_auc{}_{}'.format(ths[_idx_th], _tag), np.mean(t_acc[:_idx_th]), n_iter)
-            writer.add_scalar(task+'-ErrorComputation/acc_qt_auc{}_{}'.format(ths[_idx_th], _tag), np.mean(qt_acc[:_idx_th]), n_iter)
+    d = dd.abs()*(1/(l1[:,:,:2].norm(2,2)) + 1/(l2[:,:,:2].norm(2,2)))
 
+    dd = d.pow(2)
+
+    out = torch.clamp(d, max=clamp_at)
+
+    return out
+
+# def compute_epi_residual(pts1, pts2, F, clamp_at=0.5):
+#     l1 = torch.bmm(pts2, F)
+#     l2 = torch.bmm(pts1, F.permute(0,2,1))
+#     epi = 1e-10
+
+#     dd = ((pts1*l1).sum(2)).abs()
+
+#     dnom = 1./(l1[:,:,0]**2 + l1[:,:,1]**2 + epi) + 1/(l2[:,:,0]**2 + l2[:,:,1]**2 + epi)   
+
+#     out = torch.clamp(dd * torch.sqrt(dnom), max=clamp_at)
+
+#     return out
+
+def compute_epi_residual_non_rob(pts1, pts2, F):
+    l1 = torch.bmm(pts2, F)
+    l2 = torch.bmm(pts1, F.permute(0,2,1))
+
+    dd = ((pts1*l1).sum(2))
+
+    d = dd.abs()*(1/(l1[:,:,:2].norm(2,2)) + 1/(l2[:,:,:2].norm(2,2)))
+
+    return d
 # def compute_fundamental_scipy(x1,x2):
 #     from scipy import linalg
 #     """    Computes the fundamental matrix from corresponding points 

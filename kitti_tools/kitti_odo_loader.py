@@ -58,10 +58,10 @@ class KittiOdoLoader(object):
         self.cid_to_num = {'00': 0, '01': 1, '02': 2, '03': 3}
         self.train_seqs = [0, 1, 2, 3, 4, 5, 6, 7, 8]
         self.test_seqs = [9, 10]
-        # self.train_seqs = [0]
+        # self.train_seqs = [4]
         # self.test_seqs = []
-        self.train_seqs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        self.test_seqs = []
+        # self.train_seqs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        # self.test_seqs = []
         self.map_to_raw = {'00': '2011_10_03_drive_0027', '01': '2011_10_03_drive_0042', '02': '2011_10_03_drive_0034', '03': '2011_09_26_drive_0067', \
             '04': '2011_09_30_drive_0016', '05': '2011_09_30_drive_0018', '06': '2011_09_30_drive_0020', '07': '2011_09_30_drive_0027', \
             '08': '2011_09_30_drive_0028', '09': '2011_09_30_drive_0033', '10': '2011_09_30_drive_0034'}
@@ -326,7 +326,7 @@ def dump_match_idx(delta_ij, N_frames, dump_dir, save_npy, if_BF_matcher):
         _, sift_des_jj = load_sift(dump_dir, '%06d'%jj, ext='.npy' if save_npy else '.h5')
 
         # all_ij, good_ij = get_sift_match_idx_pair(sift_matcher, sift_des_list[ii], sift_des_list[jj])
-        all_ij, good_ij = get_sift_match_idx_pair(sift_matcher, sift_des_ii.copy(), sift_des_jj.copy())
+        all_ij, good_ij, quality = get_sift_match_idx_pair(sift_matcher, sift_des_ii.copy(), sift_des_jj.copy())
         if all_ij is None:
             logging.warning('KNN match failed dumping %s frame %d-%d. Skipping'%(dump_dir, ii, jj))
             continue
@@ -334,6 +334,7 @@ def dump_match_idx(delta_ij, N_frames, dump_dir, save_npy, if_BF_matcher):
         if save_npy:
             np.save(dump_ij_idx_file+'_all_ij.npy', all_ij)
             np.save(dump_ij_idx_file+'_good_ij.npy', good_ij)
+            np.save(dump_ij_idx_file+'_quality_ij.npy', quality)
         else:
             dump_ij_idx_dict = {'all_ij': all_ij, 'good_ij': good_ij}
             saveh5(dump_ij_idx_dict, dump_ij_idx_file+'.h5')
@@ -347,14 +348,17 @@ def get_sift_match_idx_pair(sift_matcher, des1, des2):
     # store all the good matches as per Lowe's ratio test.
     good = []
     all_m = []
+    quality = []
     for m,n in matches:
         all_m.append(m)
         if m.distance < 0.8*n.distance:
             good.append(m)
+            quality.append([m.distance, m.distance / n.distance])
+            print
 
     good_ij = [[mat.queryIdx for mat in good], [mat.trainIdx for mat in good]]
     all_ij = [[mat.queryIdx for mat in all_m], [mat.trainIdx for mat in all_m]]
-    return np.asarray(all_ij).T.copy(), np.asarray(good_ij).T.copy()
+    return np.asarray(all_ij).T.copy(), np.asarray(good_ij).T.copy(), np.asarray(quality).copy(), 
 
 def load_velo(scene_data, tgt_idx):
     velo_file = scene_data['dir']/'velodyne'/scene_data['frame_ids'][tgt_idx]+'.bin'

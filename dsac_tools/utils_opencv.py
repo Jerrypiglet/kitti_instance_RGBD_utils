@@ -153,11 +153,12 @@ def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold
             # x2_norm = cv2.undistortPoints(np.expand_dims(x2, axis=1), cameraMatrix=K, distCoeffs=None)
             # E_5point, mask = cv2.findEssentialMat(x1_norm, x2_norm, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=threshold) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
         else:
-            F_8point, _ = cv2.findFundamentalMat(x1, x2, method=cv2.RANSAC) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+            # F_8point, mask1 = cv2.findFundamentalMat(x1, x2, method=cv2.RANSAC) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
+            F_8point, mask1 = cv2.findFundamentalMat(x1, x2, cv2.RANSAC, 0.1) # based on the five-point algorithm solver in [Nister03]((1, 2) Nistér, D. An efficient solution to the five-point relative pose problem, CVPR 2003.). [SteweniusCFS](Stewénius, H., Calibrated Fivepoint solver. http://www.vis.uky.edu/~stewe/FIVEPOINT/) is also a related. 
             E_8point = K.T @ F_8point @ K
             U,S,V = np.linalg.svd(E_8point)
             E_8point = U @ np.diag([1., 1., 0.]) @ V
-            mask1 = np.ones((x1.shape[0], 1), dtype=np.uint8)
+            # mask1 = np.ones((x1.shape[0], 1), dtype=np.uint8)
             print('8 pppppoint!')
 
         E_recover = E_5point if five_point else E_8point
@@ -203,7 +204,8 @@ def recover_camera_opencv(K, x1, x2, delta_Rtij_inv, five_point=False, threshold
     if show_result:
         print('<<<<<<<<<<<<<<<< DONE Running OpenCV camera pose estimation. ---------------')
 
-    return np.hstack((R, t)), (error_R, error_t), mask2.flatten()>0, E_recover
+    E_return  = E_recover if five_point else (E_recover, F_8point)
+    return np.hstack((R, t)), (error_R, error_t), mask2.flatten()>0, E_return
         
 # def recover_camera(E_gt, K, x1, x2, delta_Rtij_inv, five_point=False, threshold=0.1):
 #     # Compare with OpenCV with refs from:
