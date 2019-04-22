@@ -1,7 +1,12 @@
-opencv-python
 scipy
 path.py
 tqdm
 torch
 h5py
 coloredlogs
+pebble
+matplotlib
+imageio
+pykitti
+opencv-python==3.4.2.16
+opencv-contrib-python==3.4.2.16

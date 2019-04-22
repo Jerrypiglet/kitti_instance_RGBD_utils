@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from itertools import cycle
+import cv2
 
 cycol = cycle('bgrcmk')
 
@@ -29,6 +30,24 @@ def _skew_symmetric(v): # v: [3, 1] or [batch_size, 3, 1]
             -v[:, 1, 0], v[:, 0, 0], zero,
         ], dim=1)
         return M.view(-1, 3, 3)
+
+def skew_symmetric_np(v): # v: [3, 1] or [batch_size, 3, 1]
+    if len(v.shape)==2:
+        zero = np.zeros_like(v[0, 0])
+        M = np.stack([
+            zero, -v[2, 0], v[1, 0],
+            v[2, 0], zero, -v[0, 0],
+            -v[1, 0], v[0, 0], zero,
+        ], axis=0)
+        return M.reshape(3, 3)
+    else:
+        zero = np.zeros_like(v[:, 0, 0])
+        M = np.stack([
+            zero, -v[:, 2, 0], v[:, 1, 0],
+            v[:, 2, 0], zero, -v[:, 0, 0],
+            -v[:, 1, 0], v[:, 0, 0], zero,
+        ], axis=1)
+        return M.reshape(-1, 3, 3)
     
 def _homo(x):
     # input: x [N, 2] or [batch_size, N, 2]
@@ -113,3 +132,72 @@ def crop_or_pad_choice(in_num_points, out_num_points, shuffle=False):
         pad = np.random.choice(choice, num_pad, replace=True)
         choice = np.concatenate([choice, pad])
     return choice
+
+def get_virt_x1x2_grid(im_shape):
+    step = 0.1
+    sz1 = im_shape
+    sz2 = im_shape
+    xx, yy = np.meshgrid(np.arange(0, 1 , step), np.arange(0, 1, step))
+    num_pts_full = len(xx.flatten())
+    pts1_virt_b = np.float32(np.vstack((sz1[1]*xx.flatten(),sz1[0]*yy.flatten())).T)
+    pts2_virt_b = np.float32(np.vstack((sz2[1]*xx.flatten(),sz2[0]*yy.flatten())).T)
+    return pts1_virt_b, pts2_virt_b
+
+def get_virt_x1x2_np(im_shape, F_gt, K, pts1_virt_b, pts2_virt_b): ##  [RUI] TODO!!!!! Convert into seq loader!
+    ## s.t. SHOULD BE ALL ZEROS: losses = utils_F.compute_epi_residual(pts1_virt_ori, pts2_virt_ori, F_gts, loss_params['clamp_at'])
+    ## Reproject by minimizing distance to groundtruth epipolar lines
+    pts1_virt, pts2_virt = cv2.correctMatches(F_gt, np.expand_dims(pts2_virt_b, 0), np.expand_dims(pts1_virt_b, 0))
+    pts1_virt[np.isnan(pts1_virt)] = 0.
+    pts2_virt[np.isnan(pts2_virt)] = 0.
+
+    # nan1 = np.logical_and(
+    #         np.logical_not(np.isnan(pts1_virt[:,:,0])),
+    #         np.logical_not(np.isnan(pts1_virt[:,:,1])))
+    # nan2 = np.logical_and(
+    #         np.logical_not(np.isnan(pts2_virt[:,:,0])),
+    #         np.logical_not(np.isnan(pts2_virt[:,:,1])))
+    # _, midx = np.where(np.logical_and(nan1, nan2))
+    # good_pts = len(midx)
+    # while good_pts < num_pts_full:
+    #     midx = np.hstack((midx, midx[:(num_pts_full-good_pts)]))
+    #     good_pts = len(midx)
+    # midx = midx[:num_pts_full]
+    # pts1_virt = pts1_virt[:,midx]
+    # pts2_virt = pts2_virt[:,midx]
+
+    pts1_virt = homo_np(pts1_virt[0])
+    pts2_virt = homo_np(pts2_virt[0])
+    pts1_virt_normalized = (np.linalg.inv(K) @ pts1_virt.T).T
+    pts2_virt_normalized = (np.linalg.inv(K) @ pts1_virt.T).T
+    return pts1_virt_normalized, pts2_virt_normalized, pts1_virt, pts2_virt
+
+def get_virt_x1x2(im_shape, F_gt, K, pts1_virt_b=None, pts2_virt_b=None): ##  [RUI] TODO!!!!! Convert into seq loader!
+    ## s.t. SHOULD BE ALL ZEROS: losses = utils_F.compute_epi_residual(pts1_virt_ori, pts2_virt_ori, F_gts, loss_params['clamp_at'])
+    if pts1_virt_b is None and pts2_virt_b is None:
+        pts1_virt_b, pts2_virt_b = get_virt_x1x2_grid(im_shape)
+    ## Reproject by minimizing distance to groundtruth epipolar lines
+    pts1_virt, pts2_virt = cv2.correctMatches(F_gt, np.expand_dims(pts2_virt_b, 0), np.expand_dims(pts1_virt_b, 0))
+    pts1_virt[np.isnan(pts1_virt)] = 0.
+    pts2_virt[np.isnan(pts2_virt)] = 0.
+
+    # nan1 = np.logical_and(
+    #         np.logical_not(np.isnan(pts1_virt[:,:,0])),
+    #         np.logical_not(np.isnan(pts1_virt[:,:,1])))
+    # nan2 = np.logical_and(
+    #         np.logical_not(np.isnan(pts2_virt[:,:,0])),
+    #         np.logical_not(np.isnan(pts2_virt[:,:,1])))
+    # _, midx = np.where(np.logical_and(nan1, nan2))
+    # good_pts = len(midx)
+    # while good_pts < num_pts_full:
+    #     midx = np.hstack((midx, midx[:(num_pts_full-good_pts)]))
+    #     good_pts = len(midx)
+    # midx = midx[:num_pts_full]
+    # pts1_virt = pts1_virt[:,midx]
+    # pts2_virt = pts2_virt[:,midx]
+
+    pts1_virt = utils_misc.homo_np(pts1_virt[0])
+    pts2_virt = utils_misc.homo_np(pts2_virt[0])
+    pts1_virt_normalized = (np.linalg.inv(K) @ pts1_virt.T).T
+    pts2_virt_normalized = (np.linalg.inv(K) @ pts1_virt.T).T
+    return torch.from_numpy(pts1_virt_normalized).float(), torch.from_numpy(pts2_virt_normalized).float(), \
+        torch.from_numpy(pts1_virt).float(), torch.from_numpy(pts2_virt).float()

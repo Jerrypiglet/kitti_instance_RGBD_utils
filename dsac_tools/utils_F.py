@@ -698,6 +698,17 @@ def _E_F_from_Rt(R_th, t_th, K_th, tensor_input=False):
         F_gt_th = torch.inverse(K_th).transpose(1, 2) @ E_gt_th @ torch.inverse(K_th)
     return E_gt_th, F_gt_th
 
+def E_F_from_Rt_np(R, t, K):
+    """ Better use F instead of E """
+    t_gt_x = utils_misc.skew_symmetric_np(t)
+#     print(t_gt_x, R_th)
+    E_gt = t_gt_x@R
+    if len(R.shape)==2:
+        F_gt = np.linalg.inv(K).T @ E_gt @ np.linalg.inv(K)
+    else:
+        F_gt = np.linalg.inv(K).transpose(1, 2) @ E_gt @ np.linalg.inv(K)
+    return E_gt, F_gt
+
 def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_two_frame_loader, delta_Rtij_inv, \
     best_N = 10, if_need_only_idx=False):
     """ Validate pose estimation with best 10 corres."""

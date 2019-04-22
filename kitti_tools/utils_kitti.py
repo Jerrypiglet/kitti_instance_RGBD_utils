@@ -398,6 +398,7 @@ def rotz(t):
                      [0,  0,  1]])
 
 def scale_intrinsics(mat, sx, sy):
+    print('--scale_intrinsics')
     assert mat.shape==(3, 3)
     out = np.copy(mat)
     out[0,0] *= sx
@@ -407,6 +408,7 @@ def scale_intrinsics(mat, sx, sy):
     return out
 
 def scale_P(P, sx, sy):
+    print('---scale_P')
     assert P.shape==(3, 4)
     out = np.copy(P)
     out[0] *= sx

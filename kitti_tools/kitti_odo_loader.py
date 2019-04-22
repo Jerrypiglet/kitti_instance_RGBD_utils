@@ -114,7 +114,7 @@ class KittiOdoLoader(object):
             zoom_xy = None
             show_zoom_info = True
             for idx in tqdm(range(scene_data['N_frames'])):
-                img, zoom_xy = self.load_image(scene_data, idx, show_zoom_info)
+                img, zoom_xy, _ = self.load_image(scene_data, idx, show_zoom_info)
                 show_zoom_info = False
                 if img is None and idx==0:
                     logging.warning('0 images in %s. Skipped.'%drive_path)
@@ -126,7 +126,6 @@ class KittiOdoLoader(object):
                         img_shape = img.shape
             # print(img_shape)
             scene_data['calibs'] = {'im_shape': [img_shape[0], img_shape[1]], 'zoom_xy': zoom_xy, 'rescale': True if zoom_xy != (1., 1.) else False}
-
             # Get geo params from the RAW dataset calibs
             P_rect_ori_dict = self.get_P_rect(scene_data, scene_data['calibs'])
             intrinsics = P_rect_ori_dict[c][:,:3]
@@ -146,7 +145,7 @@ class KittiOdoLoader(object):
             scene_data['calibs'].update(calibs_rects)
 
             # Get pose
-            poses = np.genfromtxt(self.dataset_dir/'poses'/'{}.txt'.format(drive_path[-2:])).astype(np.float64).reshape(-1, 3, 4)
+            poses = np.genfromtxt(self.dataset_dir/'poses'/'{}.txt'.format(drive_path[-2:])).astype(np.float32).reshape(-1, 3, 4)
             assert scene_data['N_frames']==poses.shape[0], 'scene_data[N_frames]!=poses.shape[0], %d!=%d'%(scene_data['N_frames'], poses.shape[0])
             scene_data['poses'] = poses
 
@@ -156,7 +155,8 @@ class KittiOdoLoader(object):
         return train_scenes
 
     def construct_sample(self, scene_data, idx, frame_id, show_zoom_info):
-        img = self.load_image(scene_data, idx, show_zoom_info)[0]
+        img, zoom_xy, img_ori = self.load_image(scene_data, idx, show_zoom_info)
+        # print(img.shape, img_ori.shape)
         sample = {"img":img, "id":frame_id}
         if self.get_X:
             velo = load_velo(scene_data, idx)
@@ -164,14 +164,17 @@ class KittiOdoLoader(object):
                 logging.error('0 velo in %s. Skipped.'%scene_data['dir'])
             velo_homo = utils_misc.homo_np(velo)
             val_idxes, X_rect, X_cam0 = rectify(velo_homo, scene_data['calibs']) # list, [N, 3]
-            sample['X_cam2_vis'] = X_rect[val_idxes]
-            sample['X_cam0_vis'] = X_cam0[val_idxes]
+            sample['X_cam2_vis'] = X_rect[val_idxes].astype(np.float32)
+            sample['X_cam0_vis'] = X_cam0[val_idxes].astype(np.float32)
         if self.get_pose:
-            sample['pose'] = scene_data['poses'][idx]
+            sample['pose'] = scene_data['poses'][idx].astype(np.float32)
         if self.get_sift:
             # logging.info('Getting sift for frame %d/%d.'%(idx, scene_data['N_frames']))
-            kp, des = self.sift.detectAndCompute(img, None) ## IMPORTANT: normalize these points
+            kp, des = self.sift.detectAndCompute(img_ori, None) ## IMPORTANT: normalize these points
             x_all = np.array([p.pt for p in kp])
+            # print(zoom_xy)
+            x_all = (x_all * np.array([[zoom_xy[0], zoom_xy[1]]])).astype(np.float32)
+            # print(x_all.shape, np.amax(x_all, axis=0), np.amin(x_all, axis=0))
             if x_all.shape[0] != self.sift_num:
                 choice = crop_or_pad_choice(x_all.shape[0], self.sift_num, shuffle=True)
                 x_all = x_all[choice]
@@ -194,9 +197,9 @@ class KittiOdoLoader(object):
         dump_dir.mkdir_p()
         intrinsics = scene_data['calibs']['K']
         dump_cam_file = dump_dir/'cam'
-        np.save(dump_cam_file+'.npy', intrinsics)
+        np.save(dump_cam_file+'.npy', intrinsics.astype(np.float32))
         dump_Rt_cam2_gt_file = dump_dir/'Rt_cam2_gt'
-        np.save(dump_Rt_cam2_gt_file, scene_data['Rt_cam2_gt'])
+        np.save(dump_Rt_cam2_gt_file, scene_data['Rt_cam2_gt'].astype(np.float32))
         poses_file = dump_dir/'poses'
         poses = []
 
@@ -212,7 +215,7 @@ class KittiOdoLoader(object):
             dump_img_file = dump_dir/'{}.jpg'.format(frame_nb)
             scipy.misc.imsave(dump_img_file, img)
             if "pose" in sample.keys():
-                poses.append(sample["pose"])
+                poses.append(sample["pose"].astype(np.float32))
             if "X_cam0_vis" in sample.keys():
                 dump_X_cam0_file = dump_dir/'X_cam0_{}'.format(frame_nb)
                 dump_X_cam2_file = dump_dir/'X_cam2_{}'.format(frame_nb)
@@ -272,17 +275,17 @@ class KittiOdoLoader(object):
         if not img_file.isfile():
             logging.warning('Image %s not found!'%img_file)
             return None, None, None
-        img = scipy.misc.imread(img_file)
-        if [self.img_height, self.img_width] == [img.shape[0], img.shape[1]]:
-            return img, (1., 1.)
+        img_ori = scipy.misc.imread(img_file)
+        if [self.img_height, self.img_width] == [img_ori.shape[0], img_ori.shape[1]]:
+            return img_ori, (1., 1.), img_ori
         else:
-            zoom_y = self.img_height/img.shape[0]
-            zoom_x = self.img_width/img.shape[1]
+            zoom_y = self.img_height/img_ori.shape[0]
+            zoom_x = self.img_width/img_ori.shape[1]
             if show_zoom_info:
-                logging.warning('[%s] Zooming the image (H%d, W%d) with zoom_xW=%f, zoom_yH=%f to (H%d, W%d).'%\
-                    (img_file, img.shape[0], img.shape[1], zoom_x, zoom_y, self.img_height, self.img_width))
-            img = scipy.misc.imresize(img, (self.img_height, self.img_width))
-            return img, (zoom_x, zoom_y)
+                logging.warning('[%s] Zooming the image (H%d, W%d) with zoom_yH=%f, zoom_xW=%f to (H%d, W%d).'%\
+                    (img_file, img_ori.shape[0], img_ori.shape[1], zoom_y, zoom_x, self.img_height, self.img_width))
+            img = scipy.misc.imresize(img_ori, (self.img_height, self.img_width))
+            return img, (zoom_x, zoom_y), img_ori
 
     def get_P_rect(self, scene_data, calibs, get_2cam_dict=True):
         # calib_file = scene_data['dir'].parent/'calib_cam_to_cam.txt'
@@ -304,7 +307,7 @@ class KittiOdoLoader(object):
         Ml_gt = np.matmul(np.linalg.inv(K), P_rect_20)
         tl_gt = Ml_gt[:, 3:4]
         Rl_gt = Ml_gt[:, :3]
-        Rtl_gt = np.vstack((np.hstack((Rl_gt, tl_gt)), np.array([0., 0., 0., 1.], dtype=np.float64)))
+        Rtl_gt = np.vstack((np.hstack((Rl_gt, tl_gt)), np.array([0., 0., 0., 1.], dtype=np.float32)))
         calibs_rects = {'Rtl_gt': Rtl_gt}
         return calibs_rects
 
@@ -322,19 +325,31 @@ def dump_match_idx(delta_ij, N_frames, dump_dir, save_npy, if_BF_matcher):
     for ii in tqdm(range(N_frames-delta_ij)):
         jj = ii + delta_ij
 
-        _, sift_des_ii = load_sift(dump_dir, '%06d'%ii, ext='.npy' if save_npy else '.h5')
-        _, sift_des_jj = load_sift(dump_dir, '%06d'%jj, ext='.npy' if save_npy else '.h5')
+        sift_kps_ii, sift_des_ii = load_sift(dump_dir, '%06d'%ii, ext='.npy' if save_npy else '.h5')
+        sift_kps_jj, sift_des_jj = load_sift(dump_dir, '%06d'%jj, ext='.npy' if save_npy else '.h5')
 
         # all_ij, good_ij = get_sift_match_idx_pair(sift_matcher, sift_des_list[ii], sift_des_list[jj])
-        all_ij, good_ij, quality = get_sift_match_idx_pair(sift_matcher, sift_des_ii.copy(), sift_des_jj.copy())
+        all_ij, good_ij, quality_good, quality_all = get_sift_match_idx_pair(sift_matcher, sift_des_ii.copy(), sift_des_jj.copy())
         if all_ij is None:
             logging.warning('KNN match failed dumping %s frame %d-%d. Skipping'%(dump_dir, ii, jj))
             continue
         dump_ij_idx_file = dump_dir/'ij_idx_{}-{}'.format(ii, jj)
+        dump_ij_quality_file = dump_dir/'ij_quality_{}-{}'.format(ii, jj)
+        dump_ij_match_quality_file = dump_dir/'ij_match_quality_{}-{}'.format(ii, jj)
+
         if save_npy:
-            np.save(dump_ij_idx_file+'_all_ij.npy', all_ij)
-            np.save(dump_ij_idx_file+'_good_ij.npy', good_ij)
-            np.save(dump_ij_idx_file+'_quality_ij.npy', quality)
+            np.save(dump_ij_idx_file+'_all.npy', all_ij)
+            np.save(dump_ij_idx_file+'_good.npy', good_ij)
+            np.save(dump_ij_quality_file+'_good.npy', quality_good)
+            np.save(dump_ij_quality_file+'_all.npy', quality_all)
+
+            # print(good_ij, good_ij.shape)
+            match_quality_good = np.hstack((sift_kps_ii[good_ij[:, 0]], sift_kps_jj[good_ij[:, 1]], quality_good)) # [[x1, y1, x2, y2, dist_good, ratio_good]]
+            match_quality_all = np.hstack((sift_kps_ii[all_ij[:, 0]], sift_kps_jj[all_ij[:, 1]], quality_all)) # [[x1, y1, x2, y2, dist_good, ratio_good]]
+            np.save(dump_ij_match_quality_file+'_good.npy', match_quality_good)
+            np.save(dump_ij_match_quality_file+'_all.npy', match_quality_all)
+
+            # print(good_ij.dtype, quality_good.dtype, good_ij.shape, quality_good.shape)
         else:
             dump_ij_idx_dict = {'all_ij': all_ij, 'good_ij': good_ij}
             saveh5(dump_ij_idx_dict, dump_ij_idx_file+'.h5')
@@ -348,17 +363,18 @@ def get_sift_match_idx_pair(sift_matcher, des1, des2):
     # store all the good matches as per Lowe's ratio test.
     good = []
     all_m = []
-    quality = []
+    quality_good = []
+    quality_all = []
     for m,n in matches:
         all_m.append(m)
         if m.distance < 0.8*n.distance:
             good.append(m)
-            quality.append([m.distance, m.distance / n.distance])
-            print
+            quality_good.append([m.distance, m.distance / n.distance])
+        quality_all.append([m.distance, m.distance / n.distance])
 
     good_ij = [[mat.queryIdx for mat in good], [mat.trainIdx for mat in good]]
     all_ij = [[mat.queryIdx for mat in all_m], [mat.trainIdx for mat in all_m]]
-    return np.asarray(all_ij).T.copy(), np.asarray(good_ij).T.copy(), np.asarray(quality).copy(), 
+    return np.asarray(all_ij, dtype=np.int32).T.copy(), np.asarray(good_ij, dtype=np.int32).T.copy(), np.asarray(quality_good, dtype=np.float32).copy(), np.asarray(quality_all, dtype=np.float32).copy()
 
 def load_velo(scene_data, tgt_idx):
     velo_file = scene_data['dir']/'velodyne'/scene_data['frame_ids'][tgt_idx]+'.bin'
