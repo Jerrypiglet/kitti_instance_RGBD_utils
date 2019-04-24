@@ -139,9 +139,10 @@ def draw_corr_widths_and_epi(F_gt, im1, im2, x1, x2, linewidth, title='', rescal
     plt.show()
 
 
-def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader=None, visualize=True, title_appendix='', param_list=[], set_lim=False):
+def reproj_and_scatter(Rt, X_rect, im_rgb, kitti_two_frame_loader=None, visualize=True, title_appendix='', param_list=[], set_lim=False, debug=True):
     if kitti_two_frame_loader is None:
-        print('Reading from input list of param_list=[K, im_shape].')
+        if debug:
+            print('Reading from input list of param_list=[K, im_shape].')
         K = param_list[0]
         im_shape = param_list[1]
     else:

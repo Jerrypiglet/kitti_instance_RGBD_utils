@@ -273,12 +273,19 @@ def _F_from_XY(X, Y, W=None, normalize=True, show_debug=False): # Ref: https://g
         F_recover_sing = torch.mm(T2.t(), torch.mm(F_recover_sing, T1))
     return F_recover_sing
 
-def _YFX(F, X, Y, if_homo=False):
+def _YFX(X, Y, F, if_homo=False, clamp_at=None):
     if not if_homo:
-        X = homo_py(X)
-        Y = homo_py(Y)
-    should_zeros = torch.diag(torch.matmul(torch.matmul(Y, F), X.t()))
-    return should_zeros
+        X = _homo(X)
+        Y = _homo(Y)
+    if len(X.size())==2:
+        should_zeros = torch.diag(torch.matmul(torch.matmul(Y, F), X.t()))
+    else:
+        should_zeros = torch.diagonal(Y@F@X.transpose(1, 2), dim1=1, dim2=2)
+    should_zeros_abs = should_zeros.abs()
+    if clamp_at is not None:
+        return torch.clamp(should_zeros_abs, max=clamp_at)
+    else:
+        return should_zeros_abs
 
 def _sampson_dist(F, X, Y, if_homo=False):
     if not if_homo:

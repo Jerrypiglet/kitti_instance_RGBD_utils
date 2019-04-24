@@ -138,6 +138,7 @@ class KittiOdoLoader(object):
             date = drive_in_raw[:10]
             seq = drive_in_raw[-4:]
             calib_path_in_raw = Path(self.dataset_dir)/'raw'/date
+            print('++++', calib_path_in_raw)
             imu2velo_dict = read_calib_file(calib_path_in_raw/'calib_imu_to_velo.txt')
             velo2cam_dict = read_calib_file(calib_path_in_raw/'calib_velo_to_cam.txt')
             cam2cam_dict = read_calib_file(calib_path_in_raw/'calib_cam_to_cam.txt')
