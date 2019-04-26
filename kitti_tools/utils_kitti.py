@@ -431,3 +431,10 @@ def load_sift(dump_dir, frame_nb, ext):
     sift_kp = sift_array[:, :2] # [N, 2]
     sift_des = sift_array[:, 2:] # [N, 128]
     return sift_kp, sift_des
+
+def load_SP(dump_dir, frame_nb, ext):
+    SP_file = dump_dir/'SP_{}'.format(frame_nb) + ext
+    SP_array = load_as_array(SP_file, np.float32)
+    SP_kp = SP_array[:, :3] # [N, 2]
+    SP_des = SP_array[:, 3:] # [N, 128]
+    return SP_kp, SP_des

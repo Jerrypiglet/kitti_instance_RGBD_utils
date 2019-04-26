@@ -47,6 +47,8 @@ parser.add_argument("--with_pose", action='store_true', default=True,
                     help="If available (e.g. with KITTI), will store pose ground truth along with images, for validation")
 parser.add_argument("--with_sift", action='store_true', default=False,
                     help="If available (e.g. with KITTI), will store SIFT points ground truth along with images, for validation")
+parser.add_argument("--with_SP", action='store_true', default=False,
+                    help="If available (e.g. with KITTI), will store SuperPoint points ground truth along with images, for validation")
 parser.add_argument("--dump_root", type=str, default='dump', help="Where to dump the data")
 
 # args = parser.parse_args('--dump --with_X --with_pose --with_sift \
@@ -68,7 +70,8 @@ data_loader = KittiOdoLoader(args.dataset_dir,
                              cam_ids=[args.cam_id],
                              get_X=args.with_X,
                              get_pose=args.with_pose,
-                             get_sift=args.with_sift)
+                             get_sift=args.with_sift, 
+                             get_SP=args.with_SP)
 
 # drive_path_test = data_loader.get_drive_path('2011_09_28', '0016')
 # data_loader.scenes = [drive_path_test]

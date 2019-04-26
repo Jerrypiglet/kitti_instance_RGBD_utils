@@ -33,7 +33,15 @@ import dsac_tools.utils_misc as utils_misc
 # from utils_good import *
 from glob import glob
 from dsac_tools.utils_misc import crop_or_pad_choice
-from utils_kitti import load_as_float, load_as_array, load_sift
+from utils_kitti import load_as_float, load_as_array, load_sift, load_SP
+
+import yaml
+DEEPSFM_PATH = '/home/ruizhu/Documents/Projects/kitti_instance_RGBD_utils/deepSfm'
+sys.path.append(DEEPSFM_PATH)
+import torch
+from models.model_wrap import PointTracker
+from models.model_wrap import SuperPointFrontend_torch
+
 
 class KittiOdoLoader(object):
     def __init__(self,
@@ -44,6 +52,7 @@ class KittiOdoLoader(object):
                  get_X=False,
                  get_pose=False,
                  get_sift=False,
+                 get_SP=False,
                  sift_num=2000,
                  if_BF_matcher=False,
                  save_npy=True):
@@ -69,6 +78,7 @@ class KittiOdoLoader(object):
         self.get_X = get_X
         self.get_pose = get_pose
         self.get_sift = get_sift
+        self.get_SP = get_SP
         self.save_npy = save_npy
         if self.save_npy:
             logging.info('+++ Dumping as npy')
@@ -86,8 +96,29 @@ class KittiOdoLoader(object):
             # self.sift_matcher = self.bf if BF_matcher else self.flann
 
         self.scenes = {'train': [], 'test': []}
+        if self.get_SP:
+            self.prapare_SP()
         self.collect_train_folders()
         self.collect_test_folders()
+
+    def prapare_SP(self):
+        logging.info('Preparing SP inference.')
+        with open(DEEPSFM_PATH + '/configs/superpoint_coco_train.yaml', 'r') as f:
+            self.config_SP = yaml.load(f, Loader=yaml.FullLoader)
+            nms_dist = self.config_SP['model']['nms']
+            conf_thresh = self.config_SP['model']['detection_threshold']
+            # nn_thresh = config_SP['model']['nn_thresh']
+            nn_thresh = 1.0
+            path = DEEPSFM_PATH + '/' + self.config_SP['pretrained']
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+            self.fe = SuperPointFrontend_torch(weights_path=path,
+                                        nms_dist=nms_dist,
+                                        conf_thresh=conf_thresh,
+                                        nn_thresh=nn_thresh,
+                                        cuda=False,
+                                        device=device)
+
 
     def collect_train_folders(self):
         for seq in self.train_seqs:
@@ -181,6 +212,15 @@ class KittiOdoLoader(object):
                 des = des[choice]
             sample['sift_kp'] = x_all
             sample['sift_des'] = des
+        if self.get_SP:
+            img_ori_gray = cv2.cvtColor(img_ori, cv2.COLOR_RGB2GRAY)
+            img = torch.from_numpy(img_ori_gray).float().unsqueeze(0).unsqueeze(0).float() / 255.
+            pts, desc, _, heatmap = self.fe.run(img)
+            pts = pts[0].T # [N, 3]
+            pts[:, :2] = (pts[:, :2] * np.array([[zoom_xy[0], zoom_xy[1]]])).astype(np.float32)
+            desc = desc[0].T # [N, 256]
+            sample['SP_kp'] = pts
+            sample['SP_des'] = desc
         return sample
 
     def dump_drive(self, args, drive_path, split, scene_data=None):
@@ -231,6 +271,13 @@ class KittiOdoLoader(object):
                 else:
                     saveh5({'sift_kp': sample['sift_kp'], 'sift_des': sample['sift_des']}, dump_sift_file+'.h5')
                 # sift_des_list.append(sample['sift_des'])
+            if "SP_kp" in sample.keys():
+                dump_sift_file = dump_dir/'SP_{}'.format(frame_nb)
+                if self.save_npy:
+                    np.save(dump_sift_file+'.npy', np.hstack((sample['SP_kp'], sample['SP_des'])))
+                    # print(sample['SP_kp'].shape, sample['SP_des'].shape)
+                else:
+                    pass
 
             sample_name_list.append('%s %s'%(dump_dir[-5:], frame_nb))
 
@@ -253,8 +300,28 @@ class KittiOdoLoader(object):
             logging.info('Getting SIFT matches on %d workers for delta_ijs = %s'%(num_workers, ' '.join(str(e) for e in delta_ijs)))
 
             with ProcessPool(max_workers=num_workers) as pool:
-                tasks = pool.map(dump_match_idx, delta_ijs, [scene_data['N_frames']]*num_tasks, \
+                tasks = pool.map(dump_sift_match_idx, delta_ijs, [scene_data['N_frames']]*num_tasks, \
                     [dump_dir]*num_tasks, [self.save_npy]*num_tasks, [self.if_BF_matcher]*num_tasks)
+                try:
+                    for _ in tqdm(tasks.result(), total=num_tasks):
+                        pass
+                except KeyboardInterrupt as e:
+                    tasks.cancel()
+                    raise e
+
+        # Get SP matches
+        if self.get_SP:
+            delta_ijs = [1, 2, 3, 5, 8, 10]
+            nn_threshes = [0.7, 1.0]
+            # delta_ijs = [1]
+            num_tasks = len(delta_ijs)
+            num_workers = min(len(delta_ijs), default_number_of_process)
+            # num_workers = 1
+            logging.info('Getting SP matches on %d workers for delta_ijs = %s'%(num_workers, ' '.join(str(e) for e in delta_ijs)))
+
+            with ProcessPool(max_workers=num_workers) as pool:
+                tasks = pool.map(dump_SP_match_idx, delta_ijs, [scene_data['N_frames']]*num_tasks, \
+                    [dump_dir]*num_tasks, [self.save_npy]*num_tasks, [nn_threshes]*num_tasks)
                 try:
                     for _ in tqdm(tasks.result(), total=num_tasks):
                         pass
@@ -311,7 +378,7 @@ class KittiOdoLoader(object):
         calibs_rects = {'Rtl_gt': Rtl_gt}
         return calibs_rects
 
-def dump_match_idx(delta_ij, N_frames, dump_dir, save_npy, if_BF_matcher):
+def dump_sift_match_idx(delta_ij, N_frames, dump_dir, save_npy, if_BF_matcher):
     if if_BF_matcher: # OpenCV sift matcher must be created inside each thread (because it does not support sharing across threads!)
         bf = cv2.BFMatcher(normType=cv2.NORM_L2)
         sift_matcher = bf
@@ -375,6 +442,36 @@ def get_sift_match_idx_pair(sift_matcher, des1, des2):
     good_ij = [[mat.queryIdx for mat in good], [mat.trainIdx for mat in good]]
     all_ij = [[mat.queryIdx for mat in all_m], [mat.trainIdx for mat in all_m]]
     return np.asarray(all_ij, dtype=np.int32).T.copy(), np.asarray(good_ij, dtype=np.int32).T.copy(), np.asarray(quality_good, dtype=np.float32).copy(), np.asarray(quality_all, dtype=np.float32).copy()
+
+def dump_SP_match_idx(delta_ij, N_frames, dump_dir, save_npy, nn_threshes):
+    for nn_thresh, name in zip(nn_threshes, ['good', 'all']):
+        SP_matcher = PointTracker(max_length=2, nn_thresh=nn_thresh)
+
+        for ii in tqdm(range(N_frames-delta_ij)):
+            jj = ii + delta_ij
+
+            SP_kps_ii, SP_des_ii = load_SP(dump_dir, '%06d'%ii, ext='.npy' if save_npy else '.h5')
+            SP_kps_jj, SP_des_jj = load_SP(dump_dir, '%06d'%jj, ext='.npy' if save_npy else '.h5')
+
+            matches, scores = get_SP_match_idx_pair(SP_matcher, SP_kps_ii, SP_kps_jj, SP_des_ii, SP_des_jj)
+
+            dump_ij_match_quality_file = dump_dir/'SP_ij_match_quality_{}-{}'.format(ii, jj)
+
+            if save_npy:
+                # print(matches.shape, scores.shape)
+                match_quality = np.hstack((matches, scores)) # [[x1, y1, x2, y2, dist_good, ratio_good]]
+                np.save(dump_ij_match_quality_file+'_%s.npy'%name, match_quality)
+            else:
+                pass
+
+def get_SP_match_idx_pair(matcher, kps1, kps2, des1, des2):
+    matcher.update(kps1.T, des1.T)
+    matcher.update(kps2.T, des2.T)
+    matches = matcher.get_matches().T # [N, 4]
+
+    scores = matcher.mscores[-1, :].reshape(-1, 1) # [N, 1]
+
+    return matches.astype(np.float32).copy(), scores.astype(np.float32).copy()
 
 def load_velo(scene_data, tgt_idx):
     velo_file = scene_data['dir']/'velodyne'/scene_data['frame_ids'][tgt_idx]+'.bin'
