@@ -93,6 +93,28 @@ def Rt_pad(Rt):
     assert Rt.shape==(3, 4)
     return np.vstack((Rt, np.array([[0., 0., 0., 1.]], dtype=Rt.dtype)))
 
+# def _Rt_pad(Rt):
+#     # Padding 3*4 [R|t] to 4*4 [[R|t], [0, 1]]
+#     assert Rt.size()==(3, 4)
+#     cat_tensor = torch.tensor([[0., 0., 0., 1.]], dtype=Rt.dtype)
+#     return torch.cat((Rt, ))
+
+def inv_Rt_np(Rt):
+    assert Rt.shape==(3, 4)
+    R1 = Rt[:, :3]
+    t1 = Rt[:, 3:4]
+    R2 = R1.T
+    t2 = -R1.T @ t1
+    return np.hstack((R2, t2))
+
+def _inv_Rt(Rt):
+    assert Rt.size()==(3, 4)
+    R1 = Rt[:, :3]
+    t1 = Rt[:, 3:4]
+    R2 = R1.t()
+    t2 = -R1.t() @ t1
+    return torch.cat((R2, t2), 1)
+
 def Rt_depad(Rt01):
     # dePadding 4*4 [[R|t], [0, 1]] to 3*4 [R|t]
     assert Rt01.shape==(4, 4)

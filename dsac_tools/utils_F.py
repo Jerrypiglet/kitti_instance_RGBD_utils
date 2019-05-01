@@ -460,7 +460,7 @@ def E_to_F_np(E, K):
 def _get_M2s(E):
     # Getting 4 possible poses from E
     U, S, V = torch.svd(E)
-    W = torch.tensor([[0,-1,0], [1,0,0], [0,0,1]], dtype=E.dtype)
+    W = torch.tensor([[0,-1,0], [1,0,0], [0,0,1]], dtype=E.dtype, device=E.device)
     if torch.det(torch.mm(U, torch.mm(W, V.t())))<0:
         W = -W
     # print('-- delta_t_gt', delta_t_gt)
@@ -549,12 +549,14 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, depth_thres
             error_t = utils_geo.vector_angle(t2, delta_Rt_gt[:3, 3:4])
             if show_result:
                 print('Recovered by %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
-            error_Rt = (error_R, error_t)
+            error_Rt = [error_R, error_t]
+            Rt_cam = [R2, t2]
 
     else:
         # raise ValueError('ERROR! 0 of qualified [R|t] found!')
         print('ERROR! 0 of qualified [R|t] found!')
-        error_Rt = ()
+        error_Rt = []
+        Rt_cam = []
 
         # # Get rid of small angle points. @Manmo: you should discard points that are beyond a depth threshold (say, more than 100m), or which subtend a small angle between the two cameras (say, less than 5 degrees).
         # v1s = (X_tri-C1).T
@@ -633,7 +635,93 @@ def _E_to_M(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt=None, depth_thres
     #     raise ValueError('ERROR! %d of qualified [R|t] found!'%np.sum(cheirality_checks))
     #     # print('ERROR! %d of qualified [R|t] found!'%np.sum(cheirality_checks))
 
-    return M2_list, error_Rt
+    return M2_list, error_Rt, Rt_cam
+
+def _E_to_M_train(E_est_th, K, x1, x2, inlier_mask=None, delta_Rt_gt_cam=None, depth_thres=50., show_debug=False, show_result=True, method_name='ours'):
+    if show_debug:
+        print('--- Recovering pose from E...')
+    count_N = x1.shape[0]
+    R2s, t2s, M2s = _get_M2s(E_est_th)
+
+    R1 = np.eye(3)
+    t1 = np.zeros((3, 1))
+    M1 = np.hstack((R1, t1))
+
+    if inlier_mask is not None:
+        x1 = x1[inlier_mask, :]
+        x2 = x2[inlier_mask, :]
+        if x1.shape[0] < 8:
+            print('ERROR! Less than 8 points after inlier mask!')
+            print(inlier_mask)
+            return None
+    # Cheirality check following OpenCV implementation: https://github.com/opencv/opencv/blob/808ba552c532408bddd5fe51784cf4209296448a/modules/calib3d/src/five-point.cpp#L513
+    depth_thres = depth_thres
+    cheirality_checks = []
+    M2_list = []
+    error_Rt = ()
+
+    def within_mask(Z, thres_min, thres_max):
+        return (Z > thres_min) & (Z < thres_max)
+
+    for Rt_idx, M2 in enumerate(M2s):
+        M2 = M2.detach().cpu().numpy()
+        R2 = M2[:, :3]
+        t2 = M2[:, 3:4]
+        if show_debug:
+            print(M2)
+            print(np.linalg.det(R2))
+        X_tri_homo = cv2.triangulatePoints(np.matmul(K, M1), np.matmul(K, M2), x1.T, x2.T)
+        X_tri = X_tri_homo[:3, :]/X_tri_homo[-1, :]
+        # C1 = -np.matmul(R1, t1) # https://math.stackexchange.com/questions/82602/how-to-find-camera-position-and-rotation-from-a-4x4-matrix
+        # cheirality1 = np.matmul(R1[2:3, :], (X_tri-C1)).reshape(-1) # https://cmsc426.github.io/sfm/
+        # if show_debug:
+        #     print(X_tri[-1, :])
+        cheirality_mask_1 = within_mask(X_tri[-1, :], 0., depth_thres)
+
+        X_tri_cam2 = np.matmul(R2, X_tri) + t2
+        # C2 = -np.matmul(R2, t2)
+        # cheirality2 = np.matmul(R2[2:3, :], (X_tri_cam3-C2)).reshape(-1)
+        cheirality_mask_2 = within_mask(X_tri_cam2[-1, :], 0., depth_thres)
+
+        cheirality_mask_12 = cheirality_mask_1 & cheirality_mask_2
+        cheirality_checks.append(cheirality_mask_12)
+
+    if show_debug:
+        print([np.sum(mask) for mask in cheirality_checks])
+    good_M_index, non_zero_nums = max(enumerate([np.sum(mask) for mask in cheirality_checks]), key=operator.itemgetter(1))
+    if non_zero_nums > 0:
+        # Rt_idx = cheirality_checks.index(True)
+        # M_inv = utils_misc.Rt_depad(np.linalg.inv(utils_misc.Rt_pad(M2s[good_M_index].detach().cpu().numpy())))
+        # M_inv = utils_misc.inv_Rt_np(M2s[good_M_index].detach().cpu().numpy())
+        M_inv_th = utils_misc._inv_Rt(M2s[good_M_index])
+        # print(M_inv, M_inv_th)
+        if show_debug:
+            print('The %d_th (0-based) Rt meets the Cheirality Condition! with [R|t] (camera):\n'%good_M_index, M_inv_th.detach().cpu().numpy())
+
+        if delta_Rt_gt_cam is not None:
+            # R2 = M2s[good_M_index][:, :3].numpy()
+            # t2 = M2s[good_M_index][:, 3:4].numpy()
+            # error_R = min([utils_geo.rot12_to_angle_error(R2.numpy(), delta_R_gt) for R2 in R2s])
+            # error_t = min(utils_geo.vector_angle(t2, delta_t_gt), utils_geo.vector_angle(-t2, delta_t_gt))
+            M_inv = M_inv_th.detach().cpu().numpy()
+            R2 = M_inv[:, :3]
+            t2 = M_inv[:, 3:4]
+            error_R = utils_geo.rot12_to_angle_error(R2, delta_Rt_gt_cam[:3, :3]) # [RUI] Both of camera motion
+            error_t = utils_geo.vector_angle(t2, delta_Rt_gt_cam[:3, 3:4])
+            if show_result:
+                print('Recovered by %s (camera): The rotation error (degree) %.4f, and translation error (degree) %.4f'%(method_name, error_R, error_t))
+            error_Rt = [error_R, error_t]
+        else:
+            error_Rt = []
+        Rt_cam = M_inv_th
+
+    else:
+        # raise ValueError('ERROR! 0 of qualified [R|t] found!')
+        print('ERROR! 0 of qualified [R|t] found!')
+        error_Rt = []
+        Rt_cam = None
+
+    return M2_list, error_Rt, Rt_cam
 
 
 
@@ -777,7 +865,7 @@ def vali_with_best_M(F_gt_th, E_gt_th, x1, x2, img1_rgb_np, img2_rgb_np, kitti_t
     return mask_index, None
 
 ### ==== funcs from the Good Corr paper repo
-def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores):
+def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores, if_my_decomp=False):
     # Use only the top 10% in terms of score to decompose, we can probably
     # implement a better way of doing this, but this should be just fine.
     if scores is not None:
@@ -797,7 +885,14 @@ def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores):
         # Get the best E just in case we get multipl E from findEssentialMat
         # num_inlier, R, t, mask_new = cv2.recoverPose(
         #     E_hat, p1s_good, p2s_good)
-        num_inlier, R, t, mask_new = cv2.recoverPose(E_hat, p1s_good, p2s_good, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
+        if if_my_decomp:
+            M2_list, error_Rt, Rt_cam = _E_to_M(torch.from_numpy(E_hat), torch.from_numpy(p1s_good), torch.from_numpy(p2s_good), delta_Rt_gt=delta_Rtij_inv, show_debug=False, method_name='Ours_best%d'%best_N)
+            if not Rt_cam:
+                return None, None
+            else:
+                print(Rt_cam[0], Rt_cam[1])
+        else:
+            num_inlier, R, t, mask_new = cv2.recoverPose(E_hat, p1s_good, p2s_good, focal=K[0, 0], pp=(K[0, 2], K[1, 2]))
         try:
             R_cam, t_cam = utils_geo.invert_Rt(R, t)
             err_q = utils_geo.rot12_to_angle_error(R_cam, delta_Rtij_inv[:3, :3])
