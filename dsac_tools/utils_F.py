@@ -880,7 +880,7 @@ def goodCorr_eval_nondecompose(p1s, p2s, E_hat, delta_Rtij_inv, K, scores, if_my
         p1s_good, p2s_good = p1s, p2s
 
     # Match types
-    # E_hat = E_hat.reshape(3, 3).astype(p1s.dtype)
+    # E_hat = E_hat.reshape(3, 3).astype(p1s.dtype))
     if p1s_good.shape[0] >= 5:
         # Get the best E just in case we get multipl E from findEssentialMat
         # num_inlier, R, t, mask_new = cv2.recoverPose(

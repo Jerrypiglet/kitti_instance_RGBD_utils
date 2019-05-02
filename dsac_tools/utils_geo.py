@@ -26,12 +26,12 @@ def _R_to_q(R):
     return q
 
 def rot12_to_angle_error(R0, R1):
-    # r, _ = cv2.Rodrigues(R0.dot(R1.T))
-    # rotation_error_from_identity = np.linalg.norm(r) / np.pi * 180.
-    another_way = np.rad2deg(np.arccos(np.clip((np.trace(R0 @ (R1.T)) - 1) / 2, -1., 1.)))
+    r, _ = cv2.Rodrigues(R0.dot(R1.T))
+    rotation_error_from_identity = np.linalg.norm(r) / np.pi * 180.
+    # another_way = np.rad2deg(np.arccos(np.clip((np.trace(R0 @ (R1.T)) - 1) / 2, -1., 1.)))
     # print(rotation_error_from_identity, another_way)
-    # return rotation_error_from_identity
-    return another_way
+    return rotation_error_from_identity
+    # return another_way
 
 def _rot_angle_error(R0, R1):
     rot_error = torch.acos(torch.clamp((torch.trace(R0 @ (R1.t())) - 1) / 2, -1., 1.))
